@@ -1,0 +1,19 @@
+Sample_ID,Clean?,Disenfectants?,Bathe?,soap,other animals,Vet?,Antibio?,Which one?,completed tx?
+A3_1,Once every six months,None,Yes,vet soap,,Yes,Yes,"Baytril, Clavamox and there might have been a third",Yes
+A3_2,Once every six months,None,Yes,vet soap,,Yes,Yes,"Baytril, Clavamox and there might have been a third",Yes
+A5_1,Once every six months,,No,,,Yes,Yes,amoxicillin,Yes
+A5_2,Once every six months,,No,,,Yes,Yes,amoxicillin,Yes
+A7_1,Once a month,None,No,None,,No,Yes,Tylon 50 injectable,Yes
+A7_2,Once a month,None,No,None,,No,Yes,Tylon 50 injectable,Yes
+A8_1,Once a year,None,No,,,Yes,Yes,"enfloxacin, ciprofloxacin",Yes
+A8_2,Once a year,None,No,,,Yes,Yes,"enfloxacin, ciprofloxacin",Yes
+A9_1,"top to bottom every 6mos., daily coop poop scoop, change coop bedding 4x yr, change run straw 4-6x yr",vinegar,Yes,dish soap,,Yes,Yes,Amoxicillin,Yes
+A9_2,"top to bottom every 6mos., daily coop poop scoop, change coop bedding 4x yr, change run straw 4-6x yr",vinegar,Yes,dish soap,,Yes,Yes,Amoxicillin,Yes
+AF3_1,Once a week,None,No,,Cats,No,No,,
+AF3_2,Once a week,None,No,,Cats,No,No,,
+AF5_1,Once every six months,None,No,,,No,No,,
+AF5_2,Once every six months,None,No,,,No,No,,
+AF7_1,Once a month,None,No,,Dog,No,No,,
+AF7_2,Once a month,None,No,,Dog,No,No,,
+AF8_1,Once a year,"Bleach, White wash",No,,Cat,No,No,,
+AF8_2,Once a year,"Bleach, White wash",No,,Cat,No,No,,

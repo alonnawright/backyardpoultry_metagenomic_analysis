@@ -1,0 +1,3338 @@
+---
+title: "AMR+Phages_041520"
+author: "Alonna Wright"
+date: "4/15/2020"
+output: html_document
+---
+```{r}
+local({r <- getOption("repos")
+       r["CRAN"] <- "http://cran.r-project.org"
+       options(repos=r)
+})
+```
+
+
+```{r include=FALSE}
+chooseCRANmirror(graphics=FALSE, ind=1)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### RMD Set up
+
+```{r setting things up}
+setwd("C:/Users/Alonna/Desktop/Grad_School/Eisen_Lab/Dennet_Chickenhouses/Phage Analysis/backyardpoultry_metagenomic_analysis/")
+path=paste0(getwd(),"/")
+data_path<-"E:/analysis/byp/dennett_chickenhouses"
+options(scipen=999)
+```
+
+```{r install packages, eval=FALSE, include=FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("phyloseq")
+BiocManager::install("metagenomeSeq")
+BiocManager::install("edgeR")
+BiocManager::install("DESeq2")
+BiocManager::install("ComplexHeatmap")
+BiocManager::install("apeglm")
+
+
+install.packages("knitr")
+install.packages("devtools")
+install.packages("cli")
+install.packages("cachem")
+install.packages("reshape")
+
+devtools::install_github("katiejolly/nationalparkcolors")
+devtools::install_github('sinhrks/ggfortify')
+devtools::install_github("vqv/ggbiplot")
+devtools::install_github("GuillemSalazar/EcolUtils")
+devtools::install_github("gaospecial/ggVennDiagram")
+devtools::install_github("teunbrand/ggh4x")
+devtools::install_github("sherrillmix/taxonomizr")
+devtools::install_github("HuntsmanCancerInstitute/hciR")
+devtools::install_github("HuntsmanCancerInstitute/hciRdata")
+
+install.packages("dplyr")
+install.packages("dichromat")
+install.packages("ggfortify")
+install.packages("extrafont")
+install.packages("tidyverse")
+install.packages("prodlim")
+install.packages("data.table")
+install.packages("DescTools")
+install.packages("venn")
+install.packages("ggpolypath")
+install.packages("pheatmap")
+install.packages("UpSetR")
+install.packages("eulerr")
+install.packages("circlize")
+install.packages("ggdendro")
+install.packages("ggcorrplot")
+
+install.packages("remotes")
+remotes::install_github("missuse/ragp")
+
+```
+
+
+```{r setup, message=FALSE, warning=FALSE}
+library(knitr)
+library(plyr)
+library(readr)
+library(dplyr)
+library(data.table)
+library(ggplot2)
+library(reshape)
+library(tidyverse)
+library(phyloseq)
+library(prodlim)
+library(ape)
+library(nationalparkcolors)
+library(dichromat)
+library(RColorBrewer)
+library(metagenomeSeq)
+library(gridExtra)
+library(ggfortify)
+# library(ggbiplot)
+library(extrafont)
+library(vegan)
+library(EcolUtils)
+library(DescTools)
+library(edgeR)
+library(DESeq2)
+library(ggVennDiagram)
+library(venn)
+library(ggpolypath)
+library(ellipse)
+library(ggh4x)
+library(pheatmap)
+library(UpSetR)
+library(taxonomizr)
+library(eulerr)
+library(Rcpp)
+library(hciR)
+library(ComplexHeatmap)
+library(circlize)
+library(Hmisc)
+library(apeglm)
+library(ggtext)
+library(cowplot)
+library(glue)
+library(broom)
+library(ggdendro)
+library(ggcorrplot)
+library(ragp)
+
+```
+
+### Graphing Aesthetics Setup
+
+#### Setting up font
+```{r}
+# font_import(paths = "C:/Users/Alonna/Downloads/Quicksand",prompt = F)
+# loadfonts(device = "win")
+```
+
+
+#### Color Palette
+```{r}
+pal <- park_palette("Voyageurs",5)
+expanded_pal <- colorRampPalette(pal)(30)
+
+farm_palette <- c("#26420E","#117733","#44AA99","#68B4C1","#DDCC77","#C98153","#B75050","#882222","#26420E","#C98153")
+expanded_farm_palette <- colorRampPalette(farm_palette)(30)
+expanded40_farm_palette <- colorRampPalette(farm_palette)(40)
+
+chicken_palette <- c("#D59950", "#E6E397", "#D3DFB2", "#7F8B57", "#7A8FA2")
+expanded_chicken_palette <- colorRampPalette(chicken_palette)(30)
+chicken_palette_10 <- colorRampPalette(chicken_palette)(10)
+chicken_palette_7 <- colorRampPalette(chicken_palette)(7)
+
+heatmap_palette <- c("#9EB3C2", "#1C7293", "#065A82", "#1B3B6F", "#21295C")
+  #c("#eef0f2", "#1d3557")
+
+heatmap_gridline_color <- c("#adb5bd")
+
+```
+
+#### Resistance palette
+```{r}
+# total_resistances <- data.frame(c(card_tsv$RESISTANCE, ncbi_tsv$RESISTANCE, resfinder_tsv$RESISTANCE))
+# total_resistances <- na.omit(unique(total_resistances))
+# colnames(total_resistances) <- "RESISTANCE"
+```
+
+```{r}
+# resist_pal <- colorRampPalette(farm_palette)(nrow(total_resistances))
+# names(resist_pal) <- sort(total_resistances$RESISTANCE)
+```
+
+#### Antibiotic Usage palette
+```{r}
+AB_usage_pal <- c("#d59950", "#7a8fa2")
+names(AB_usage_pal) <- c("Antibiotic Free", "Antibiotic")
+```
+
+
+### Reading in metadata
+```{r}
+metadata <- read.csv(file="dennett_chickenhouses_metadata.csv", header = TRUE, sep = ",")
+metadata$House_ID <- as.character(metadata$House_ID)
+rownames(metadata) <- metadata$Sample_ID
+
+metadata$Pair <- as.factor(metadata$Pair)
+```
+
+### Reading in Anvio contig ID translation file
+```{r}
+virsorter_input_sequences_id_translation <- read_tsv("E:/analysis/byp/Anvio_DennettChickenhouse_Coassembly/virsorter030521/fasta/input_sequences_id_translation.tsv", col_names=c("anvio_contig_id", "virsorter_contig_id"))
+
+contig_id_conversion_table <- read_tsv("E:/analysis/byp/Anvio_DennettChickenhouse_Coassembly/coassembly_report_local.txt", col_names=c("anvio_contig_id", "megahit_contig_id")) %>% 
+  separate(megahit_contig_id, c("contig_ID", "flag", "multi", "length"), " ", remove=FALSE) %>%
+  select(anvio_contig_id, contig_ID) %>%
+  dplyr::rename(megahit_contig_id = contig_ID) %>%
+  left_join(virsorter_input_sequences_id_translation, by=c("anvio_contig_id"))
+
+save(contig_id_conversion_table, file="contig_id_conversion_table.RData")
+
+```
+
+### Reading in DeepARG files
+These tables already have the contig ID in the "read_ID" column
+```{r}
+deeparg_coassembly_mapping <- read_tsv(paste0(data_path,"/deeparg/deeparg_coassemblyResults.mapping.ARG"))
+deeparg_coassembly_mapping_predicted <- read_tsv(paste0(data_path,"/deeparg/deeparg_coassemblyResults.mapping.potential.ARG"))
+
+deeparg_coassembly_mapping_combined <- rbind(deeparg_coassembly_mapping, deeparg_coassembly_mapping_predicted)
+```
+
+### Reading in VIBRANT files
+
+```{r}
+vibrant_coassembly_annotations <- read_tsv(paste0(data_path, "/vibrant/VIBRANT_2.megahit_contigs.out.contigs/VIBRANT_results_2.megahit_contigs.out.contigs/VIBRANT_annotations_2.megahit_contigs.out.contigs.tsv"), col_names=TRUE) %>% separate(scaffold, c("contig_ID", "flag", "multi", "length"), " ", remove=FALSE)
+
+vibrant_coassembly_resultsSummary <- read_tsv(paste0(data_path, "/vibrant/VIBRANT_2.megahit_contigs.out.contigs/VIBRANT_results_2.megahit_contigs.out.contigs/VIBRANT_summary_results_2.megahit_contigs.out.contigs.tsv"), col_names=TRUE) %>% 
+  separate(scaffold, c("contig_ID", "flag", "multi", "length"), " ", remove=FALSE) %>% 
+  distinct() %>%
+  left_join(., select(vibrant_coassembly_annotations, c("contig_ID","KO", "AMG", "KO name")), by="contig_ID")
+
+vibrant_coassembly_AMG <- read_tsv(paste0(data_path, "/vibrant/VIBRANT_2.megahit_contigs.out.contigs/VIBRANT_results_2.megahit_contigs.out.contigs/VIBRANT_AMG_individuals_2.megahit_contigs.out.contigs.tsv"), col_names=TRUE) %>%
+  separate(scaffold, c("contig_ID", "flag", "multi", "length"), " ", remove=FALSE)
+
+
+```
+
+### Reading in VirSorter files
+Virsorter was run on the coassembly for Anvio purposes, so we have to backtrack to include the original contig names from the megahit output
+Categories:
+1 - sure
+2 - somewhat sure
+3 - not so sure
+```{r}
+virsorter_results <- read.csv("E:/analysis/byp/Anvio_DennettChickenhouse_Coassembly/virsorter030521/VIRSorter_global-phage-signal_Rinput.csv", header = TRUE)
+
+# virsorter_input_sequences_id_translation <- read_tsv("E:/analysis/byp/Anvio_DennettChickenhouse_Coassembly/virsorter030521/fasta/input_sequences_id_translation.tsv", col_names=c("anvio_contig_id", "virsorter_contig_id"))
+
+virsorter_results_withContigID <- inner_join(virsorter_results, virsorter_input_sequences_id_translation, by=c("virsorter_contig_id"), copy=TRUE) %>%
+  inner_join(., contig_id_conversion_table, by=c("anvio_contig_id"), copy=TRUE)
+
+```
+
+
+### Reading in macrel output files
+
+Followed commands listed on this documentation https://macrel.readthedocs.io/en/latest/
+
+From the macrel documentation: 
+"The main output file generated by Macrel consists of a table with 6 columns containing the: 
+- sequence access code, peptide sequence, 
+- classification of peptide accordingly (cationic or anionic), and 
+- structure (linear or disulfide bond forming), 
+- the probability associated with the AMP prediction, 
+- hemolytic activity prediction and probability associated to hemolytic activity prediction.
+
+All peptides outputted in this table are considered predicted AMPs (p > 0.5) by Macrel, although peptides predicted with probabilities closer to 1 are more likely to be active. Similarly, the hemolytic activity is more likely to be verified in those peptides with probabilites associated to the prediction closer to 1."
+
+From README.md in output: 
+"1. `Access` Identififiers (arbitrarily assigned by Macrel)
+2. `Sequence` Predicted amino acid sequence
+3. `AMP_family`: AMP family classified into anionic/cationic and
+   cysteine-containing/linear coded as: `A`/`C` and `D`/`L`, respectively,
+   followed by a `P` (for peptide), _e.g._, a cationic cysteine-containing
+   peptide would be `CDP`.
+4. `AMP_probability`: Probability that the peptide is antimicrobial
+5. `Hemolytic`: Classification into hemolytic (Hemo) or non-hemolytic (NonHemo)
+6. `Hemolytic_probability`: Probability of hemolytic activity" 
+
+
+```{r}
+macrel_coassembly <- read_tsv(paste0(data_path,"/macrel/macrel_coassembly_local_out/macrel.out.prediction"), col_names = TRUE, skip=1) %>% tidyr::extract("Access", into=c("megahit_contig_id", "prodigal_gene_num_within_contig"), regex="(.*)_(.*)", remove=FALSE, convert=FALSE)
+  
+  #  separate(.,col="Access", into=c("contig_ID", "AMP_ID_within_contig"), sep="(.*)_(.*)", remove=FALSE)
+```
+
+
+### Reading in Kaiju files
+
+Even though this gives a parsing error, all rows are being read in
+```{r}
+# kaiju_coassembly_contig_summary <- read.delim(paste0(data_path,"/kaiju/kaiju.out"), 
+#                                             col.names=c("classified_unclassified", "contig_ID", "NCBI_taxon_ID", "match_score", "taxon_ID", "accession_number", "match_sequence"), 
+#                                             na.strings =c("", "NA"),
+#                                             sep = "\t",
+#                                             fileEncoding="UTF-8-BOM"
+#                                             )
+# #  
+# #tidyr::extract("Access", into=c("megahit_contig_id", "prodigal_gene_num_within_contig"), regex="(.*)_(.*)", remove=FALSE, convert=FALSE)
+# 
+# kaiju_kaiju2table_coassembly_taxonRanksDefined <- read_tsv(paste0(data_path, "/kaiju/kaiju2table_coassembly_taxonRanksDefined.tsv"), col_names = TRUE) %>%
+#  separate(taxon_name, c("superkingdom","phylum","class","order","family","genus","species"), sep=";", remove=FALSE)
+# 
+# 
+# kaiju_contig_taxonTable <- left_join(select(kaiju_coassembly_contig_summary,c("classified_unclassified", "contig_ID", "NCBI_taxon_ID")), kaiju_kaiju2table_coassembly_taxonRanksDefined, by = c("NCBI_taxon_ID"="taxon_id"), copy=TRUE)
+
+kaiju_names <- read.delim(paste0(data_path,"/kaiju/kaiju-names.tsv"), 
+                          header = FALSE,
+                          col.names=c("classified_unclassified", "contig_ID", "NCBI_taxon_ID", "match_score", "taxon_ID", "accession_number", "match_sequence", "taxon_name"),
+                          na.strings =c("", "NA"),
+                          sep = "\t",
+                          fileEncoding="UTF-8-BOM"
+                        ) %>%
+  separate(taxon_name, c("superkingdom","phylum","class","order","family","genus","species"), sep=";", remove=FALSE) %>%
+  mutate(across(where(is.character), str_trim))
+#%>%
+
+#  mutate_all(~ as.factor(.))
+
+
+```
+
+## Contig summaries
+
+For each contig, this determines the taxonomic origin (phage from VIBRANT, bacteria from Kaiju, or both), and count of AMR and AMP within each contig. 
+VIBRANT - phage
+KAIJU - bacterial taxonomy
+DeepARG - AMR genes (confirmed and predicted)
+MACREL - AMP genes
+
+```{r}
+# deep_arg_contigCounts <- as.data.frame(table(deeparg_coassembly_mapping$read_id), responseName="AMR_count")
+# deep_arg_predicted_contigCounts <- as.data.frame(table(deeparg_coassembly_mapping_predicted$read_id), responseName="AMR_predicted_count")
+# macrel_contigCounts <- as.data.frame(table(macrel_coassembly$megahit_contig_id), responseName="AMP_count")
+
+```
+
+
+```{r}
+# contig_total_summaries <- as.data.frame(kaiju_coassembly_contig_summary$contig_ID) %>%
+#   dplyr::rename("contig_id"="kaiju_coassembly_contig_summary$contig_ID") %>%
+#   left_join(., select(anvio_contig_id, anvio_contig_id, contig_ID), by=c("contig_id"="contig_ID")) %>%
+#   left_join(., select(kaiju_coassembly_contig_summary_taxonName, contig_ID, taxon_ID, y0:y16), by=c("contig_id"="contig_ID"))%>%
+#   left_join(., select(vibrant_coassembly_resultsSummary_distinct, contig_ID, 'total genes'), by=c("contig_id"="contig_ID")) %>%
+#   dplyr::rename("vibrant_total_genes"="total genes") %>%
+#   left_join(., deep_arg_contigCounts, by=c("contig_id" = "Var1"), copy=TRUE) %>%
+#   dplyr::rename("AMR_count_deeparg_known" = "AMR_count") %>%
+#   left_join(., deep_arg_predicted_contigCounts, by=c("contig_id" = "Var1"), copy=TRUE) %>%
+#   dplyr::rename("AMR_count_deeparg_predicted" = "AMR_predicted_count") %>%
+#   left_join(., macrel_contigCounts, by=c("contig_id" = "Var1"), copy=TRUE) %>%
+#   dplyr::rename("AMP_count_macrel" = "AMP_count") %>%
+#   mutate(bacteria_kaiju = fifelse(y1=="Bacteria", TRUE, FALSE, na=FALSE),
+#         phage_vibrant = fifelse(contig_id %in% vibrant_coassembly_resultsSummary_distinct$contig_ID, TRUE, FALSE, na=FALSE),
+#         phage_virsorter = fifelse(contig_id %in% virsorter_results_withContigID$contig_ID, TRUE, FALSE, na=FALSE),
+#         amr_deeparg = fifelse(contig_id %in% deeparg_coassembly_mapping$read_id, TRUE, FALSE, na=FALSE),
+#         amr_deeparg_predicted = fifelse(contig_id %in% deeparg_coassembly_mapping_predicted$read_id, TRUE, FALSE, na=FALSE),
+#         amp_macrel = fifelse(contig_id %in% macrel_coassembly$contig_ID, TRUE, FALSE, na=FALSE),
+#         other = fifelse((phage_vibrant!=TRUE & phage_virsorter!=TRUE & bacteria_kaiju!=TRUE), TRUE, FALSE, na=FALSE))
+# 
+# 
+# 
+# 
+#   # mutate(kaiju_taxon = ifelse(contig_id %in% kaiju_coassembly_contig_summary_taxonName$contig_ID, kaiju_coassembly_contig_summary_taxonName$taxon_name, NA))
+#   
+# 
+# contig_total_summaries
+
+```
+
+
+### VirHostMatcher - Phage + Host Pair Analysis
+Viral contigs were used as inputs to virHostMatcher-Net (https://github.com/jessieren/VirHostMatcher). Using default parameters, bacterial hosts were predicted for each viral contig. Outputs were compiled in command line, and the file of compiled predictions is read in here.
+
+Output from individual contig analysis compiled with the following script, originally run at `/mnt/e/analysis/byp/dennett_chickenhouses/virhostmatcher/VirHostMatcher_033122_allphagecontig/predictions/compile_predictions.sh`
+
+```{bash eval=FALSE, include=TRUE}
+#!/bin/bash
+
+echo -n "megahit_contig_id," > compiled_outputs.csv
+head -n 1 k141_990809_prediction.csv >> compiled_outputs.csv
+
+ls k141* | while read FILENAME
+do
+        CONTIG="$(basename ${FILENAME} _prediction.csv)"
+        LINE="$(tail -n +2 ${FILENAME})"
+        echo ${CONTIG},${LINE} | tr '\t' ',' | tr ' ' '_' >> compiled_outputs.csv
+
+done
+
+```
+
+
+```{r}
+
+virhostmatcher_results <- read_csv(paste0(data_path, "/virhostmatcher/VirHostMatcher_033122_allphagecontig/predictions/compiled_outputs.csv"))
+
+#remove the single archaea result
+# virhostmatcher_results <- virhostmatcher_results[virhostmatcher_results$hostSuperkingdom != "Archaea",]
+```
+
+
+Since VirHostmatcher-Net returns the NCBI accession number, but kaiju only returns the taxon ID, we need to convert the taxon IDs to accession numbers. This can be done using Entrez Direct in command line. https://www.biostars.org/p/353500/
+
+```{r}
+# kaiju_taxonID <- as.data.frame(kaiju_kaiju2table_coassembly_taxonRanksDefined)
+# write.table(kaiju_taxonID, file = "kaiju_coassembly_taxonID.txt", quote=FALSE, row.names = FALSE, col.names = FALSE)
+# 
+# virhostmatcher_ncbiID <- as.data.frame(virhostmatcher_results$hostNCBIName)
+# write.table(virhostmatcher_ncbiID, file = "virhostmatcher_ncbiID.txt", quote=FALSE, row.names = FALSE, col.names = FALSE)
+
+```
+
+```{r}
+# virhostmatcher_results_bothID <- read_tsv("virhostmatcher_ID_summary_withHeader.txt", col_names = TRUE) %>%
+#   left_join(., virhostmatcher_results, by=c("AssemblyAccession"="hostNCBIName"), copy=TRUE)
+# 
+# #check to make sure accession numbers match 
+# virhostmatcher_results_bothID$AssemblyAccession[!(virhostmatcher_results_bothID$AssemblyAccession %in% virhostmatcher_results_bothID$LastMajorReleaseAccession)]
+
+#the one returned result here is just a difference in assembly release - taxonomic assignment is the same
+
+```
+
+
+```{r}
+# virhostmatcher_results <- virhostmatcher_results %>% extract(VIRSorter_contig_ID, into=c("VIRSorter_contig_ID_extracted"), regex="^([a-zA-Z]+_[a-zA-Z]+_[0-9]+).*$", remove=FALSE, convert=FALSE)
+
+# virsorter_results_withContigID$Present_in_VIRHostMatcher_Results <- virsorter_results_withContigID$virsorter_contig_id %in% virhostmatcher_results_BothID$VIRSorter_contig_ID_extracted
+```
+
+```{r}
+# contig_total_summaries <- contig_total_summaries %>% left_join(., select(virsorter_results_withContigID, contig_ID, Present_in_VIRHostMatcher_Results), by=c("contig_id"="contig_ID"))
+```
+
+
+# Anvio Analysis
+
+```{r}
+anvio_genes_in_split <- read_tsv("E:/analysis/byp/Anvio_DennettChickenhouse_Coassembly/genes_in_splits.txt", col_names=TRUE)
+anvio_splits_basic_info <- read_tsv("E:/analysis/byp/Anvio_DennettChickenhouse_Coassembly/splits_basic_info.txt", col_names=TRUE)
+anvio_all_gene_calls <- read_tsv("E:/analysis/byp/Anvio_DennettChickenhouse_Coassembly/all_gene_calls.txt", col_names=TRUE)
+```
+
+```{r}
+# anvio_misc_data <- select(contig_total_summaries,anvio_contig_id,contig_id) %>%
+#   left_join(., select(vibrant_coassembly_resultsSummary_distinct,contig_ID,"total genes":"VOG v-score"), by=c("contig_id"="contig_ID")) %>%
+#   dplyr::rename_all(make.names) %>%
+#   dplyr::rename_with(., .fn = ~paste0("vibrant_", .x), .cols = "total.genes":"VOG.v.score") %>%
+#   left_join(., select(virsorter_results_withContigID, anvio_contig_id,Category,Nb.genes,Nb.phage.hallmark.genes,Phage.gene.enrichment.sig), by="anvio_contig_id") %>%
+#   dplyr::rename_with(., .fn = ~paste0("virsorter_", .x), .cols = "Category":"Phage.gene.enrichment.sig") %>%
+#   left_join(., select(deeparg_coassembly_mapping, read_id, `predicted_ARG-class`, probability), by=c("contig_id"="read_id")) %>%
+#   dplyr::rename_all(make.names) %>%
+#   dplyr::rename_with(., .fn = ~paste0("deeparg_known_", .x), .cols = "predicted_ARG.class":"probability") %>%
+#   left_join(., select(deeparg_coassembly_mapping_predicted, read_id, `predicted_ARG-class`, probability), by=c("contig_id"="read_id")) %>%
+#   dplyr::rename_all(make.names) %>%
+#   dplyr::rename_with(., .fn = ~paste0("deeparg_predicted_", .x), .cols = "predicted_ARG.class":"probability") %>%
+#   left_join(., select(macrel_coassembly, contig_ID, AMP_family, AMP_probability), by=c("contig_id"="contig_ID")) 
+# %>%
+  # dplyr::rename(.,contig=anvio_contig_id) 
+  # group_by(contig) %>%
+  # summarize(deeparg_predicted_mean_probability = mean(deeparg_predicted_probability)) %>%
+  # ungroup() 
+
+
+# anvio_misc_data %>% group_by(contig) %>% 
+#   filter(n()>1)
+```
+
+```{r}
+# write_tsv(anvio_misc_data, "byp_coassembly_misc_data.tsv", col_names = TRUE, quote_escape = FALSE)
+```
+
+## Sample Coverage Information
+
+### Coverage
+```{r}
+files <- dir(paste0(data_path, "/bbmap_coassemblycoverage"), pattern = "*bincov.txt") # get file names
+```
+
+```{r}
+coverage_data <- data_frame(filename = files) %>% # create a data frame
+                                         # holding the file names
+  mutate(file_contents = map(filename,          # read files into
+           ~ read_tsv(file.path(paste0(data_path, "/bbmap_coassemblycoverage"), .), skip=2)) # a new data column
+        )  %>%
+  unnest()
+
+# coverage_data <- coverage_data %>% make.names(., unique = TRUE)
+```
+
+```{r}
+# coverage_contigs <- left_join(contig_total_summaries, coverage_data, by=c("anvio_contig_id"="#RefName"))
+```
+
+```{r}
+# coverage_data_wide <- pivot_wider(coverage_data, names_from = filename, values_from = Cov) %>%
+#   right_join(., select(anvio_misc_data, contig, contig_id), by=c("#RefName"="contig")) %>%
+#   relocate("contig_id", .before="Pos") %>%
+#   select(., -Pos, -RunningPos) %>%
+#   rename_with(~str_remove(., '_bincov.txt'))
+#   # rename_at(.vars = vars(ends_with("_bincov.txt")),
+#   #           .funs = funs(sub("[.]bincov.txt$", "", .)))
+```
+
+
+### Read Count Data 
+
+Abundance = (mean coverage of contig)/(overall sample mean coverage)
+
+Relative Abundance = (# of reads recruited to contig)/(max number of reads recruited to that contig in any sample)
+
+https://merenlab.org/2017/05/08/anvio-views/
+
+Not finished - need to figure out how to calculate the rel abund using the max for each row. Unsure of best calculation to use, literature is conflicting. Exploring other options. 
+
+```{r}
+files_reads <- dir(paste0(data_path, "/bbmap_coassemblycoverage"), pattern = "*readcounts.txt") # get file names
+```
+
+```{r}
+
+readcount_data <- tibble(filename = files_reads) %>% # create a data frame
+  mutate(file_contents = map(filename,          # read files into
+           ~ read_tsv(file.path(paste0(data_path, "/bbmap_coassemblycoverage"), .))) # a new data column
+        )  %>%
+ unnest()  %>% select(., filename, '#name', unambiguousReads )%>%
+  pivot_wider(names_from = filename, values_from = unambiguousReads)%>%
+  rename_with(~str_remove(., '_readcounts.txt'))%>%
+  column_to_rownames(var='#name') %>%
+  mutate(across(everything(), ~replace_na(.x, 0)))
+
+save(readcount_data, file="readcount_data.RData")
+```
+
+
+Relative abundance of gene (not sure if this will be relevant here) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5407692/
+
+
+## DESeq2 Analysis
+https://lashlock.github.io/compbio/R_presentation.html
+Paper justifying DESeq2 on metagenomes: https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-016-2386-y 
+
+[In depth tutorial on using DESeq2](https://github.com/hbctraining/DGE_workshop/tree/master/lessons)
+
+```{r cache=TRUE}
+# deseqmetadata <- select(metadata, "Sample_ID":"Pair") %>% remove_rownames() %>% dplyr::slice(., -8)
+# # readcount_data_distinct <- readcount_data %>% distinct()
+# dds <- DESeqDataSetFromMatrix(countData = readcount_data,
+#                               colData = deseqmetadata, 
+#                               design=~AntibioticUsage + IndoorOutdoor, tidy=FALSE)
+# 
+# dds <- DESeq(dds)
+# cpm_dds <- fpm(dds)
+# 
+# dds <- DESeq2::estimateSizeFactors(dds)
+# DESeq2::sizeFactors(dds)
+# normalized_counts <- counts(dds, normalized=TRUE)
+# cpm_dds_normalized <- fpm(dds)
+# rlog_dds <- rlog(dds)
+```
+
+```{r cache=TRUE}
+#Adding feature data to all contigs based on our other analyses
+#http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#the-deseqdataset
+
+# dds_feature_data <- 
+#   contig_id_conversion_table %>%
+#   #column_to_rownames(var="anvio_contig_id") %>%
+#   left_join(., select(deeparg_coassembly_mapping, read_id,`#ARG`, `predicted_ARG-class`, probability, counts), by=c("megahit_contig_id"="read_id")) %>% 
+#   dplyr::rename("AMR_gene"="#ARG", "AMR_class"="predicted_ARG-class") %>%
+#   left_join((macrel_coassembly %>% dplyr::count(megahit_contig_id)), by="megahit_contig_id") %>%
+#   dplyr::rename("AMP_count"="n") %>%
+#   left_join(select(kaiju_names, contig_ID, "superkingdom":"species"), by=c("megahit_contig_id"="contig_ID")) %>%
+#   select(-megahit_contig_id)
+# 
+# #macrel has a few contigs that have multiple AMP predictions and I'm unsure how to deal with it right now 1/8/22
+# #%>%
+# #  left_join(., select(macrel_coassembly, megahit_contig_id, "AMP_family":"Hemolytic_probability"))
+# 
+# featureData <- data.frame(dds_feature_data, row.names = "anvio_contig_id") 
+# mcols(dds) <- DataFrame(mcols(dds), featureData)
+# mcols(dds)  
+
+# 
+# 
+# # Pulling the results of the deseq object and ordering by significance
+# res <- results(dds)
+# head(results(dds, tidy=TRUE))
+# 
+# resOrdered <- res[order(res$pvalue),]
+# DESeq2::summary(res)
+# 
+# sum(res$padj < 0.1, na.rm=TRUE)
+# 
+# res05 <- results(dds, alpha=0.05, saveCols=c(colnames(featureData)))
+# DESeq2::summary(res05)
+# mcols(res05, use.names=T)
+# 
+# sum(res05$padj < 0.05, na.rm=TRUE)
+# 
+# # res05_tb <- res05 %>% 
+# #                   mutate(threshold_OE = padj < 0.05 & abs(log2FoldChange) >= 0.58)
+```
+
+
+```{r cache=TRUE}
+# #mcols(res05, use.names=T)
+# #res05 %>% data.frame() %>% View()
+# 
+# res05_tb <- res05 %>%
+#   data.frame() %>%
+#   rownames_to_column(var="contig") %>% 
+#   as_tibble()
+# 
+# ### Set thresholds
+# padj.cutoff <- 0.05
+# #lfc.cutoff <- 0.58
+# 
+# res05_tb_sig <- res05_tb %>%
+#         filter(padj < padj.cutoff)
+# 
+# res05_tb_sig
+```
+
+So it looks like none of our AMR or AMP contigs are differentially abundant on their own, which is okay! I'd like to look at each class' abundance as a whole (rather than on a contig basis), so I'm going to move on to a different method. 
+
+```{r}
+# Create tibbles including row names
+# mov10_meta <- meta %>% 
+#   rownames_to_column(var="samplename") %>% 
+#   as_tibble()
+#         
+# normalized_counts <- normalized_counts %>% 
+#   data.frame() %>%
+#   rownames_to_column(var="gene") %>% 
+#   as_tibble()
+```
+
+
+
+
+```{r}
+# top_norm <- normalized_counts %>%
+#   as_tibble(rownames = NA) %>%
+#   filter(row.names(.) %in% res05@rownames)
+#   
+# top_norm
+```
+
+
+
+### Differential Abudance Heatmap
+```{r cache=TRUE}
+# ntd <- normTransform(dds)
+# #vsd <- vst(dds, blind=FALSE)
+# #rld <- rlog(dds, blind=FALSE)
+# 
+# select <- order(rowMeans(counts(dds,normalized=TRUE)),
+#                 decreasing=TRUE)[1:20]
+# 
+# df <- as.data.frame(colData(dds)[,c("AntibioticUsage","IndoorOutdoor")])
+# 
+# vsdata <- vst(dds, blind=FALSE)
+# 
+# # pheatmap(assay(vsd)[select,], cluster_rows=FALSE, show_rownames=TRUE,
+# #          cluster_cols=FALSE, annotation_col=df)
+```
+
+
+
+```{r}
+
+# plotPCA(vsdata, intgroup="AntibioticUsage") + 
+#   scale_color_manual(values = AB_usage_pal) + 
+#   stat_ellipse(type = "norm", na.rm = TRUE)
+# 
+# plotPCA(vsdata, intgroup="IndoorOutdoor") + 
+#  # scale_color_manual(values = AB_usage_pal) + 
+#   stat_ellipse(type = "norm", na.rm = TRUE)
+
+# pca_ggplot <- plotPCA(vsdata, intgroup=c("AntibioticUsage","IndoorOutdoor")) + 
+#  # scale_color_manual(values = AB_usage_pal) + 
+#   stat_ellipse(type = "norm", na.rm = TRUE) + 
+#   labs(color='Group') +
+#   theme(plot.background = element_rect(fill = "transparent", color = NA),
+#         panel.background = element_rect(fill = "transparent", color = NA),
+#         legend.key = element_rect(fill = "transparent", color = NA),
+#         legend.background = element_rect(fill = "transparent", color = NA))
+# 
+# pca_ggplot
+# 
+# ggsave("pca_ggplot.png", plot=pca_ggplot, device = "png")
+```
+
+
+## EdgeR Analysis
+```{r cache=TRUE}
+# edger_contig_annotation <- contig_total_summaries %>% column_to_rownames(var="anvio_contig_id")
+
+edger_sample_df <- metadata %>% filter(Sample_ID != "A8_2") %>% select(c("Sample_ID","AntibioticUsage")) %>% dplyr::rename(.,group=AntibioticUsage)
+
+edger_object <- DGEList(counts=readcount_data, sample = edger_sample_df)
+edger_object
+```
+
+```{r cache=TRUE}
+#don't actually need to filter since I'm not worried about expression
+# keep <- filterByExpr(edger_object)
+# edger_object <-edger_object[keep, , keep.lib.sizes=FALSE]
+# dim(edger_object)
+
+edger_object <- edgeR::calcNormFactors(edger_object, method ="TMM")
+logCPM <- as_tibble(cpm(edger_object, log=TRUE, normalized.lib.sizes = TRUE, prior.count=1), rownames=NA)
+CPM <- as_tibble(cpm(edger_object), rownames="contig_id")
+
+save(CPM, file="CPM.RData")
+
+# remove(edger_object)
+
+```
+
+```{r}
+plotMDS(edger_object)
+```
+
+## MASTER TABLE OF VALUES - PAPER 1
+```{r}
+CPM_sampleAbundance <- CPM %>% left_join(., contig_id_conversion_table, by=c("contig_id"="anvio_contig_id")) %>%
+  dplyr::rename("anvio_contig_id"="contig_id") 
+
+CPM_long <- pivot_longer(CPM, 
+                         cols = starts_with("A"), 
+                         names_to = "sample_id", 
+                         values_to = "CPM", 
+                         values_drop_na = FALSE) %>%
+  left_join(., contig_id_conversion_table, by=c("contig_id"="anvio_contig_id")) %>%
+  dplyr::rename("anvio_contig_id"="contig_id") 
+  #        "megahit_contig_id"="contig_ID")
+
+amp_table <- left_join(macrel_coassembly, CPM_long, by=c("megahit_contig_id")) %>%
+  group_by(sample_id, AMP_family, Hemolytic) %>%
+  summarise(CPM=sum(CPM),
+            Hemolytic_probability_avg=mean(Hemolytic_probability),
+            .groups = "keep") %>%
+  ungroup()
+
+amr_table <- left_join(deeparg_coassembly_mapping, CPM_long, by=c("read_id"="megahit_contig_id")) %>%
+  group_by(sample_id, `predicted_ARG-class`, `#ARG`) %>%
+  summarise(CPM=sum(CPM),
+            probability_avg=mean(probability),
+            .groups = "keep") %>%
+  ungroup()
+
+amr_predicted_table <- left_join(deeparg_coassembly_mapping_predicted, CPM_long, by=c("read_id"="megahit_contig_id")) %>% 
+  group_by(sample_id, `predicted_ARG-class`) %>%
+  summarise(CPM=sum(CPM),
+            probability_avg=mean(probability),
+            .groups = "keep") %>%
+  ungroup()
+amr_predicted_table
+
+#by sample and contig per taxon
+taxa_CPM_table <- left_join(kaiju_names, CPM_long, by=c("contig_ID"="megahit_contig_id")) %>%
+  dplyr::rename("megahit_contig_id"="contig_ID")
+
+#by sample taxon CPMs
+taxa_summary_table <- left_join(kaiju_names, CPM_long, by=c("contig_ID"="megahit_contig_id")) %>%
+ group_by(sample_id, taxon_name, superkingdom, phylum, class, order, family, genus, species) %>%
+ summarise(CPM=sum(CPM),
+          .groups = "keep") %>%
+ ungroup() %>%
+ mutate_all(~ as.factor(.))
+
+
+#use kaiju_names for by contig taxa assignment
+
+contig_summary <- 
+  contig_id_conversion_table %>%
+  #column_to_rownames(var="anvio_contig_id") %>%
+  left_join(., select(deeparg_coassembly_mapping, read_id,`#ARG`, `predicted_ARG-class`, probability, counts), by=c("megahit_contig_id"="read_id")) %>% 
+  dplyr::rename("AMR_gene"="#ARG", "AMR_class"="predicted_ARG-class") %>%
+  left_join((macrel_coassembly %>% dplyr::count(megahit_contig_id)), by="megahit_contig_id") %>%
+  dplyr::rename("AMP_count"="n") %>%
+  left_join(select(kaiju_names, contig_ID, "superkingdom":"species"), by=c("megahit_contig_id"="contig_ID")) %>%
+  left_join(CPM_sampleAbundance) %>%
+  pivot_longer(cols = c("A3_1":"AF8_2"), names_to = "sample_id", values_to = "CPM", values_drop_na = FALSE) %>%
+  left_join(select(metadata,"Sample_ID", "AntibioticUsage", "IndoorOutdoor"), by=c("sample_id"="Sample_ID"))
+
+save(CPM_sampleAbundance, file="CPM_sampleAbundance.RData")
+save(CPM_long, file="CPM_long.RData")
+save(amp_table, file="amp_table.RData")
+save(amr_table, file="amr_table.RData")
+save(amr_predicted_table, file="amr_predicted_table.RData")
+save(taxa_CPM_table, file="taxa_CPM_table.RData")
+save(taxa_summary_table, file="taxa_summary_table.RData")
+save(contig_summary, file = "contig_summary.RData")
+
+ 
+```
+
+```{r}
+load(paste0(path, "contig_summary.RData"))
+load(paste0(path, "CPM.RData"))
+load(paste0(path, "taxa_CPM_table.RData"))
+
+```
+
+```{r}
+salmonella_amr <- contig_summary %>%
+  filter(., is.na(AMR_gene) == FALSE & genus == "Salmonella")
+
+salmonella_amp <- contig_summary %>%
+  filter(., is.na(AMP_count) == FALSE & genus == "Salmonella")
+
+```
+
+
+## Venn Diagrams
+
+Using "venn" package - up to 7 comparison sets
+https://cran.r-project.org/web/packages/venn/venn.pdf
+
+Phage taxonomy from: https://health.uni-hohenheim.de/fileadmin/einrichtungen/gesundheitswissenschaften/Downloads/Bacteriophages_Taxonomy_2011-Ackermann.pdf
+(there has to be a better resource than this? ICTV is ~not helpful~)
+These are orders and families 
+```{r}
+phage_taxonomy_masterList <- c("Caudovirales", "Myoviridae", "Siphoviridae", "Podoviridae", "Microviridae", "Corticoviridae", 
+                                  "Tectiviridae", "Leviviridae", "Cystoviridae", "Inoviridae", "Plasmaviridae")
+```
+
+Making the boolean dataframe
+```{r}
+contig_venn_df <- kaiju_names %>%
+  mutate(
+    Phage=fifelse(((superkingdom=="Viruses" & ((order %in% phage_taxonomy_masterList) | (family %in% phage_taxonomy_masterList))) | contig_ID %in% vibrant_coassembly_resultsSummary$contig_ID | contig_ID %in% virsorter_results_withContigID$contig_ID), TRUE, FALSE, na=FALSE),
+    Bacteria=fifelse(superkingdom == "Bacteria", TRUE, FALSE, na=FALSE),
+    Archaea=fifelse(superkingdom == "Archaea", TRUE, FALSE, na=FALSE),
+    Eukaryota=fifelse(superkingdom == "Eukaryota", TRUE, FALSE, na=FALSE),
+    # Viruses=fifelse(superkingdom=="Viruses", TRUE, FALSE, na=FALSE),
+    OtherTaxa=fifelse((superkingdom == "NA" | classified_unclassified=="U" | (Phage != TRUE & Bacteria != TRUE & Archaea != TRUE & Eukaryota != TRUE)), TRUE, FALSE, na=TRUE),
+    AMR= fifelse(contig_ID %in% deeparg_coassembly_mapping$read_id | contig_ID %in% deeparg_coassembly_mapping_predicted$read_id, TRUE, FALSE, na=FALSE),
+    AMP=fifelse(contig_ID %in% macrel_coassembly$megahit_contig_id, TRUE, FALSE, na=FALSE)) %>%
+  column_to_rownames(var="contig_ID") %>%
+  select(c("Phage":"AMP")) %>%
+  as.data.frame()
+
+contig_venn_df_phage_bac <- kaiju_names %>%
+  mutate(
+    Phage=fifelse(((superkingdom=="Viruses" & ((order %in% phage_taxonomy_masterList) | (family %in% phage_taxonomy_masterList))) | contig_ID %in% vibrant_coassembly_resultsSummary$contig_ID | contig_ID %in% virsorter_results_withContigID$contig_ID), TRUE, FALSE, na=FALSE),
+    Bacteria=fifelse(superkingdom == "Bacteria", TRUE, FALSE, na=FALSE),
+    OtherTaxa=fifelse((Phage != TRUE & Bacteria != TRUE), TRUE, FALSE, na=TRUE),
+    AMR= fifelse(contig_ID %in% deeparg_coassembly_mapping$read_id | contig_ID %in% deeparg_coassembly_mapping_predicted$read_id, TRUE, FALSE, na=FALSE),
+    AMP=fifelse(contig_ID %in% macrel_coassembly$megahit_contig_id, TRUE, FALSE, na=FALSE)) %>%
+  column_to_rownames(var="contig_ID") %>%
+  select(c("Phage":"AMP")) %>%
+  as.data.frame()
+
+save(contig_venn_df, file="contig_venn_df.RData")
+save(contig_venn_df_phage_bac, file="contig_venn_df_phage_bac.RData")
+```
+
+### Extracting phage IDs
+to analyzE all contigs identified as phage for potential host matching
+```{r}
+phage_contig_ids <- contig_venn_df %>%
+  filter(Phage == "TRUE") %>% 
+  rownames_to_column(var="megahit_contig_id") %>%
+  select(megahit_contig_id)
+
+write.table(phage_contig_ids, file = "phage_contig_ids.txt", sep = "", quote=FALSE, row.names=FALSE)
+
+phage_lysin_contig_ids <- vibrant_coassembly_annotations %>%
+  dplyr::filter(str_detect(`VOG name`, "lysin"))
+
+save(phage_lysin_contig_ids, file="phage_lysin_contig_ids.RData")
+
+```
+
+## Venn Diagrams of Contigs
+plotting with all columns
+
+```{r cache=TRUE}
+venn_plot_simple <- venn::venn(contig_venn_df, ggplot=TRUE, zcolor = "style", box=FALSE, ilabels=TRUE)
+
+venn_plot_simple_phage_bac <- venn::venn(select(contig_venn_df, Phage, Bacteria, AMR, AMP), ggplot=TRUE, zcolor = "style", box=FALSE, ilabels=TRUE)
+
+venn_plot_phage_bac <- venn::venn(contig_venn_df_phage_bac, ggplot=TRUE, zcolor = "style", box=FALSE, ilabels=TRUE)
+
+```
+
+
+```{r}
+venn_ggplot<- function(venn_obj){
+  venn_simple_styled <- venn_obj +
+  ggtitle("Analysis of Metagenomic Contigs") +
+  # geom_label() +
+  theme(text=element_text(face = "bold", color = "black"),
+        legend.position="none",
+        axis.title = element_text(size = 40),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text = element_text(size=20)
+        )
+venn_simple_styled
+}
+
+venn_plot_simple_ggplot <- venn_ggplot(venn_plot_simple)
+venn_plot_simple_phage_bac_ggplot <- venn_ggplot(venn_plot_simple_phage_bac)
+venn_plot_phage_bac_ggplot <- venn_ggplot(venn_plot_phage_bac)
+
+venn_plot_simple_ggplot
+venn_plot_simple_phage_bac_ggplot
+venn_plot_phage_bac_ggplot
+
+```
+
+
+```{r}
+#save(venn_simple_styled, file = "venn_simple_styled.RData")
+
+save(venn_plot_simple_ggplot, file = "venn_plot_simple_ggplot.RData")
+save(venn_plot_simple_phage_bac_ggplot, file = "venn_plot_simple_phage_bac_ggplot.RData")
+save(venn_plot_phage_bac_ggplot, file = "venn_plot_phage_bac_ggplot.RData")
+
+
+#ggsave(filename="byp_contig_venn.svg", plot = venn_simple_styled, device="svg")
+ggsave(filename="venn_plot_simple_phage_bac_ggplot.svg", plot = venn_plot_simple_phage_bac_ggplot, device="svg")
+
+ggsave(filename="venn_plot_simple_ggplot.png", plot = venn_plot_simple_ggplot, device="png")
+
+ggsave(filename="venn_plot_simple_phage_bac_ggplot.png", plot = venn_plot_simple_phage_bac_ggplot, device="png")
+ggsave(filename="venn_plot_phage_bac_ggplot.png", plot = venn_plot_phage_bac_ggplot, device="png")
+```
+### Phyloseq Input Data Formatting
+```{r}
+byp_otu_table <- CPM %>% 
+  column_to_rownames(var="contig_id")
+
+byp_tax_table <- kaiju_names %>%
+  select(c(contig_ID, superkingdom:species)) 
+# %>%
+#   left_join(., select(deeparg_coassembly_mapping, read_id,`#ARG`, `predicted_ARG-class`, probability, counts), by=c("megahit_contig_id"="read_id")) %>% 
+#   dplyr::rename("AMR_gene"="#ARG", "AMR_class"="predicted_ARG-class") %>%
+#   left_join((macrel_coassembly %>% dplyr::count(megahit_contig_id)), by="megahit_contig_id") %>%
+#   dplyr::rename("AMP_count"="n")
+  
+byp_tax_table_virhostmatcher <- virhostmatcher_results %>%
+  select(c(megahit_contig_id, hostSuperkingdom:hostName))
+
+save(byp_otu_table, file="byp_otu_table.RData")
+save(byp_tax_table, file="byp_tax_table.RData")
+save(byp_tax_table_virhostmatcher, file="byp_tax_table_virhostmatcher.RData")
+save(metadata, file="metadata.RData")
+
+```
+
+
+### Euler Plot
+```{r}
+#didn't finish running after 18h - need to reconfigure
+#euler_plot <- eulerr::euler(contig_venn_df, shape="ellipse")
+
+#plot(euler_plot)
+```
+
+
+### UpSetR Contig Plot
+
+```{r}
+upset_df <- contig_venn_df %>% mutate_if(is.logical, as.numeric)
+
+upset(upset_df,  keep.order = TRUE, nsets = 7, scale.intersections = "log2", scale.sets = "log2", empty.intersections = TRUE)
+```
+
+
+## Stacked Bar Plots of AMR and AMP Families
+
+```{r}
+# counts <- as.data.frame(CPM) %>% rownames_to_column(., "anvio_contig_id")
+# 
+# log_counts <- as.data.frame(logCPM) %>% rownames_to_column(., "anvio_contig_id")
+
+```
+
+```{r}
+stacked_bar_plot_df <- contig_venn_df %>%
+  rownames_to_column(var="contig_id") %>%
+  left_join(., select(kaiju_names, contig_ID, superkingdom), by=c("contig_id"="contig_ID")) %>%
+  left_join(., select(macrel_coassembly, megahit_contig_id, "AMP_family":"Hemolytic_probability"), by=c("contig_id"="megahit_contig_id")) %>%
+  left_join(., select(deeparg_coassembly_mapping, read_id, '#ARG', 'predicted_ARG-class', probability), by=c("contig_id"="read_id")) %>%
+  dplyr::rename("deepARG_class_known"="predicted_ARG-class",
+                "deepARG_probability_known"="probability",
+                "deepARG_gene_known"="#ARG") %>%
+  left_join(., select(deeparg_coassembly_mapping_predicted, read_id, '#ARG', 'predicted_ARG-class', probability), by=c("contig_id"="read_id")) %>%
+  dplyr::rename("deepARG_class_predicted"="predicted_ARG-class",
+                "deepARG_probability_predicted"="probability",
+                "deepARG_gene_predicted"="#ARG") %>%
+  left_join(., CPM_sampleAbundance, by=c("contig_id"="megahit_contig_id"))
+ 
+
+
+stacked_bar_plot_df_long <- stacked_bar_plot_df %>% pivot_longer(., "A3_1":"AF8_2",names_to = "sample", values_to = "value")
+
+```
+
+
+```{r}
+phage_stacked_bar_plot_df <- stacked_bar_plot_df_long %>% filter(Phage == "TRUE") 
+#%>%  left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample"="Sample_ID"))
+
+phage_amp_stacked_barplotdf <- phage_stacked_bar_plot_df %>%
+  filter(AMP == "TRUE") %>% 
+  group_by(AMP_family, sample) %>%
+  dplyr::summarize(value=sum(value), AMP_probability=mean(AMP_probability), .groups="drop") %>%
+  ungroup() %>%
+  left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample"="Sample_ID"))
+
+# No results lol
+
+# phage_amr_stacked_barplotdf <- phage_stacked_bar_plot_df %>%
+#   filter(AMR == "TRUE") %>% 
+#   group_by(deepARG_gene_known, deepARG_class_known, deepARG_gene_predicted, deepARG_class_predicted, sample) %>%
+#   dplyr::summarize(value=sum(value), .groups="drop") %>%
+#   ungroup() %>%
+#   left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample"="Sample_ID"))
+```
+
+
+###AMP Barchart
+`AMP_family`: AMP family classified into anionic/cationic and
+   cysteine-containing/linear coded as: `A`/`C` and `D`/`L`, respectively,
+   followed by a `P` (for peptide), _e.g._, a cationic cysteine-containing
+   peptide would be `CDP`.
+'AMP_probability`: Probability that the peptide is antimicrobial
+
+```{r}
+AMP_barchart_df <- stacked_bar_plot_df_long %>%
+  filter(AMP == "TRUE") %>%
+  select("Phage":"OtherTaxa",superkingdom,AMP_family,AMP_probability,sample,value) %>%
+  filter(value != "NA",
+         AMP_family != "NA") %>%
+  group_by(AMP_family, sample, superkingdom) %>%
+  dplyr::summarize(value=sum(value), AMP_probability=mean(AMP_probability), .groups="drop") %>%
+  ungroup() %>%
+  left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample"="Sample_ID"))
+
+
+# AMP_barchart_log_df <- stacked_bar_plot_log_df %>%
+#   select(taxa,AMP_family,AMP_probability,sample,value) %>%
+#   filter(value != "NA",
+#          AMP_family != "NA") %>%
+#   group_by(AMP_family, sample, taxa) %>%
+#   summarize(value=sum(value), AMP_probability=mean(AMP_probability), .groups="drop") %>%
+#   ungroup() %>%
+#   left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample"="Sample_ID"))
+#   
+AMP_barchart_df
+# AMP_barchart_log_df
+```
+
+```{r}
+amp_ggplot <- function(amp_barchart_df){
+  AMP_stacked_bar_plot <- ggplot(amp_barchart_df, aes(fill=AMP_family, y=value, x=sample)) + 
+  geom_bar(position="stack",stat="identity") +
+  scale_y_continuous(trans='log10')+
+  guides(fill=guide_legend(title="AMP Family")) + 
+  xlab("Sample") +
+  ylab("Counts Per Million Mapped Reads (CPM)") +
+  scale_fill_manual(labels = c("Anionic Linear
+   Peptide (ALP)", "Cationic Cysteine-containing
+   Peptide (CDP)", "Cationic Linear
+   Peptide (CLP)"), values = c("#457b9d", "#a8dadc","#1d3557")) +
+  ggtitle("Antimicrobial Peptide Gene Composition") +
+  theme(plot.title = element_text(hjust=0.5),
+        strip.placement = "outside",                      # Place facet labels outside x axis labels.
+        strip.background = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.minor = element_blank(),
+        # panel.background = element_blank(),
+        panel.grid.major = element_line(colour = "#d9d9d9"),
+        legend.position="bottom", 
+        legend.box = "horizontal",
+        legend.text = element_text(size = 6),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA), 
+        legend.background = element_rect(fill = "transparent", color = NA), 
+        legend.box.background = element_rect(fill = "transparent", color = NA))  
+AMP_stacked_bar_plot
+}
+
+amp_ggplot_total <- amp_ggplot(AMP_barchart_df)
+
+amp_ggplot_taxa_indoor_abx <- amp_ggplot(AMP_barchart_df) + facet_nested(~superkingdom + AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amp_ggplot_taxa_indoor_abx
+
+amp_ggplot_taxa_abx <- amp_ggplot(AMP_barchart_df) + facet_nested(~superkingdom + AntibioticUsage,
+               scales="free",
+               nest_line = TRUE)
+
+amp_ggplot_taxa_indoor <- amp_ggplot(AMP_barchart_df) + facet_nested(~superkingdom + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+
+amp_ggplot_indoor_abx <- amp_ggplot(AMP_barchart_df) + facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+
+amp_ggplot_abx <- amp_ggplot(AMP_barchart_df) + facet_nested(~AntibioticUsage,
+               scales="free",
+               nest_line = TRUE)
+
+amp_ggplot_indoorOutdoor <- amp_ggplot(AMP_barchart_df) + facet_nested(~IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+
+amp_ggplot_phage <- amp_ggplot(phage_amp_stacked_barplotdf) + ggtitle("Phage Encoded Antimicrobial Peptide Gene Composition")
+amp_ggplot_phage
+
+amp_ggplot_phage_indoor_abx <- amp_ggplot(phage_amp_stacked_barplotdf) + facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE) + ggtitle("Phage Encoded Antimicrobial Peptide Gene Composition")
+amp_ggplot_phage_indoor_abx
+```
+
+
+```{r}
+#save(AMP_stacked_bar_plot, file = "AMP_stacked_bar_plot.RData")
+ggsave(filename = "amp_ggplot_total.png", plot = amp_ggplot_total, device = "png")
+ggsave(filename = "amp_ggplot_taxa_indoor_abx.png", plot = amp_ggplot_taxa_indoor_abx, device = "png")
+ggsave(filename = "amp_ggplot_taxa_abx.png", plot = amp_ggplot_taxa_abx, device = "png")
+ggsave(filename = "amp_ggplot_taxa_indoor.png", plot = amp_ggplot_taxa_indoor, device = "png")
+ggsave(filename = "amp_ggplot_indoor_abx.png", plot = amp_ggplot_indoor_abx, device = "png")
+ggsave(filename = "amp_ggplot_abx.png", plot = amp_ggplot_abx, device = "png")
+ggsave(filename = "amp_ggplot_indoorOutdoor.png", plot = amp_ggplot_indoorOutdoor, device = "png")
+
+ggsave(filename = "amp_ggplot_phage.png", plot = amp_ggplot_phage, device = "png")
+ggsave(filename = "amp_ggplot_phage_indoor_abx.png", plot = amp_ggplot_phage_indoor_abx, device = "png")
+
+
+```
+
+
+### AMR Barchart
+```{r}
+AMR_barchart_df <- stacked_bar_plot_df_long %>%
+  select(superkingdom,"deepARG_gene_known":"deepARG_probability_predicted",sample,value) %>%
+  filter(value > 0,
+         deepARG_class_known != "NA" | deepARG_class_predicted != "NA") %>%
+group_by(deepARG_class_known, deepARG_class_predicted, sample, superkingdom) %>%
+dplyr::summarize(value=sum(value), 
+          deepARG_probability_predicted=mean(deepARG_probability_predicted), 
+          deepARG_probability_known=mean(deepARG_probability_known),
+          .groups="drop") %>%
+ungroup() %>%
+  left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample"="Sample_ID")) %>%
+  unite(col=ARG_class, deepARG_class_known:deepARG_class_predicted, sep = ";", remove=FALSE, na.rm = TRUE) %>%
+  separate_rows(ARG_class,sep = ";")
+  
+AMR_barchart_df
+```
+
+```{r}
+nb.cols <- length(unique(AMR_barchart_df$ARG_class))
+amr_pal <- colorRampPalette(c("#FCD0A1","#B1B695", "#A690A4", "#5E4B56", "#AFD2E9"))(nb.cols)
+```
+
+```{r}
+amr_ggplot <- function(amr_df){
+  AMR_stacked_bar_plot <- ggplot(amr_df, aes(fill=ARG_class, y=value, x=sample)) + 
+  geom_bar(position="stack",stat="identity") +
+  scale_y_continuous(trans='log10')+
+  guides(fill=guide_legend(title="ARG Class")) + 
+  xlab("Sample") +
+  ylab("ARG Count") +
+  scale_fill_manual(values=amr_pal)+
+  ylab("Counts Per Million Mapped Reads (CPM)") +
+  ggtitle("Antimicrobial Resistance Gene Composition", ) +
+  theme(plot.title = element_text(hjust=0.5),
+        strip.placement = "outside",                      # Place facet labels outside x axis labels.
+        strip.background = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.minor = element_blank(),
+        # panel.background = element_blank(),
+        panel.grid.major = element_line(colour = "#d9d9d9"),
+        legend.position="bottom", 
+        legend.box = "horizontal",
+        legend.text = element_text(size = 6),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA), 
+        legend.background = element_rect(fill = "transparent", color = NA), 
+        legend.box.background = element_rect(fill = "transparent", color = NA))   
+
+AMR_stacked_bar_plot
+}
+```
+
+```{r}
+amr_ggplot_taxa_indoor_abx <- amr_ggplot(AMR_barchart_df) + facet_nested(~superkingdom + AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amr_ggplot_taxa_indoor_abx
+
+amr_ggplot_taxa_indoor <- amr_ggplot(AMR_barchart_df) + facet_nested(~superkingdom + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amr_ggplot_taxa_indoor
+
+amr_ggplot_taxa_abx <- amr_ggplot(AMR_barchart_df) + facet_nested(~superkingdom + AntibioticUsage,
+               scales="free",
+               nest_line = TRUE)
+amr_ggplot_taxa_abx
+
+amr_ggplot_taxa <- amr_ggplot(AMR_barchart_df) + facet_nested(~superkingdom,
+               scales="free",
+               nest_line = TRUE)
+amr_ggplot_taxa
+
+amr_ggplot_indoor_abx <- amr_ggplot(AMR_barchart_df) + facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amr_ggplot_indoor_abx
+
+amr_ggplot_abx <- amr_ggplot(AMR_barchart_df) + facet_nested(~AntibioticUsage,
+               scales="free",
+               nest_line = TRUE)
+amr_ggplot_abx
+
+amr_ggplot_indoor <- amr_ggplot(AMR_barchart_df) + facet_nested(~IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amr_ggplot_indoor
+
+amr_ggplot_total <- amr_ggplot(AMR_barchart_df)
+amr_ggplot_total
+```
+
+```{r}
+# save(AMR_stacked_bar_plot, file = "AMR_stacked_bar_plot.RData")
+
+ggsave(filename = "amr_ggplot_taxa_indoor_abx.png", plot = amr_ggplot_taxa_indoor_abx, device = "png")
+ggsave(filename = "amr_ggplot_taxa_indoor.png", plot = amr_ggplot_taxa_indoor, device = "png")
+ggsave(filename = "amr_ggplot_taxa_abx.png", plot = amr_ggplot_taxa_abx, device = "png")
+ggsave(filename = "amr_ggplot_taxa.png", plot = amr_ggplot_taxa, device = "png")
+ggsave(filename = "amr_ggplot_indoor_abx.png", plot = amr_ggplot_indoor_abx, device = "png")
+ggsave(filename = "amr_ggplot_abx.png", plot = amr_ggplot_abx, device = "png")
+ggsave(filename = "amr_ggplot_indoor.png", plot = amr_ggplot_indoor, device = "png")
+ggsave(filename = "amr_ggplot_total.png", plot = amr_ggplot_total, device = "png")
+
+save(amr_ggplot_taxa_indoor_abx, file = "amr_ggplot_taxa_indoor_abx.RData")
+
+```
+
+
+##### Lysin Stacked Barcharts
+
+```{r}
+lysin_barchart_df <- CPM_sampleAbundance %>%
+  filter(megahit_contig_id %in% phage_lysin_contig_ids$contig_ID) %>%
+  select(-c("anvio_contig_id", "virsorter_contig_id")) %>%
+  pivot_longer(., "A3_1":"AF8_2",names_to = "sample", values_to = "value") %>%
+  left_join(., select(phage_lysin_contig_ids, contig_ID, `VOG name`), by=c("megahit_contig_id"="contig_ID")) %>%
+   left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample"="Sample_ID"))
+```
+
+```{r}
+lysin_ggplot <- function(lysin_df){
+  lysin_stacked_bar_plot <- ggplot(lysin_df, aes(fill=`VOG name`, y=value, x=sample)) + 
+  geom_bar(position="stack",stat="identity") +
+  scale_y_continuous(trans='log10')+
+  guides(fill=guide_legend(title="Viral Orthologous Group Name")) + 
+  xlab("Sample") +
+  ylab("VOG Count") +
+  scale_fill_manual(values=chicken_palette_7)+
+  ylab("Counts Per Million Mapped Reads (CPM)") +
+  ggtitle("Lysin Viral Orthologous Group Gene Composition", ) +
+  theme(plot.title = element_text(hjust=0.5),
+        strip.placement = "outside",                      # Place facet labels outside x axis labels.
+        strip.background = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.minor = element_blank(),
+        # panel.background = element_blank(),
+        panel.grid.major = element_line(colour = "#d9d9d9"),
+        legend.position="bottom", 
+        legend.box = "horizontal",
+        legend.text = element_text(size = 6),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA), 
+        legend.background = element_rect(fill = "transparent", color = NA), 
+        legend.box.background = element_rect(fill = "transparent", color = NA))   
+
+lysin_stacked_bar_plot
+}
+```
+
+```{r}
+lysin_ggplot_indoor_abx <- lysin_ggplot(lysin_barchart_df) + facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+lysin_ggplot_indoor_abx
+
+ggsave(filename = "lysin_ggplot_indoor_abx.png", plot = lysin_ggplot_indoor_abx, device = "png")
+
+```
+
+
+# Heatmap
+
+## CPM
+
+### AMR x Sample
+```{r amr dataframe}
+amr_heatmap_df <- contig_summary %>%
+  group_by(AMR_gene, AMR_class, sample_id) %>%
+  dplyr::summarize(CPM=sum(CPM), .groups="drop") %>%
+  ungroup() %>%
+  left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample_id"="Sample_ID")) %>%
+  filter(AMR_gene !="NA") 
+```
+
+
+```{r amr heatmap graphing}
+
+amr_heatmap_sample <- ggplot(amr_heatmap_df, aes(x=sample_id, y=AMR_class, fill=CPM))+
+  geom_raster() +
+  #facet_grid(cols = vars(AntibioticUsage),  scales="free") +
+  scale_fill_gradientn(colours = heatmap_palette) +
+  xlab("Sample") +
+  ylab("ARG Class") +
+  theme(axis.ticks.x=element_blank(),
+       # axis.text.x = element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.text.x = element_text(angle = 90),
+      strip.placement = "outside",                      # Place facet labels outside x axis labels.
+      strip.background = element_blank(), 
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA), 
+      legend.box.background = element_rect(fill = "transparent", color = NA)) 
+      
+      #panel.ontop = TRUE)
+
+amr_heatmap_sample
+
+#cols = vars(AMR_class),
+#axis.text.x=element_blank()
+
+amr_heatmap_abx_indoor <- amr_heatmap_sample + facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amr_heatmap_abx_indoor
+
+amr_heatmap_abx <- amr_heatmap_sample + facet_nested(~AntibioticUsage,
+               scales="free",
+               nest_line = TRUE)
+amr_heatmap_abx
+
+amr_heatmap_indoor <- amr_heatmap_sample + facet_nested(~IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amr_heatmap_indoor
+
+```
+
+```{r}
+ggsave(amr_heatmap_sample, filename = "amr_heatmap_sample.png", device = "png")
+ggsave(amr_heatmap_abx_indoor, filename = "amr_heatmap_abx_indoor.png", device = "png")
+ggsave(amr_heatmap_abx, filename = "amr_heatmap_abx.png", device = "png")
+ggsave(amr_heatmap_indoor, filename = "amr_heatmap_indoor.png", device = "png")
+```
+
+### AMP vs Sample
+
+```{r amp dataframe}
+amp_heatmap_df <- amp_table %>%
+  left_join(., select(metadata, Sample_ID, AntibioticUsage,IndoorOutdoor), by=c("sample_id"="Sample_ID")) %>%
+  filter(AMP_family !="NA")
+```
+
+```{r amp heatmap graphing}
+
+amp_sample_heatmap <- ggplot(amp_heatmap_df, aes(x=sample_id, y=AMP_family, fill=CPM))+
+  geom_raster() +
+  # facet_grid(rows = vars(Hemolytic),scales="free") +
+  scale_fill_gradientn(colours = heatmap_palette) +
+  xlab("Sample") +
+  ylab("AMP Family") +
+  theme(axis.ticks.x=element_blank(),
+       # axis.text.x = element_blank(),
+       plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA), 
+        axis.ticks.y=element_blank(),
+       axis.text.x = element_text(angle = 90),
+        strip.placement = "outside",                      # Place facet labels outside x axis labels.
+        strip.background = element_blank())
+
+amp_sample_heatmap
+
+amp_sample_heatmap_abx_indoor <- amp_sample_heatmap + facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amp_sample_heatmap_abx_indoor
+
+amp_sample_heatmap_abx <- amp_sample_heatmap + facet_nested(~AntibioticUsage,
+               scales="free",
+               nest_line = TRUE)
+amp_sample_heatmap_abx
+
+amp_sample_heatmap_indoor <- amp_sample_heatmap + facet_nested(~IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amp_sample_heatmap_indoor
+
+amp_sample_heatmap_hemo <- amp_sample_heatmap + facet_grid(rows = vars(Hemolytic),scales="free")
+amp_sample_heatmap_hemo
+
+amp_sample_heatmap_hemo_abx <- amp_sample_heatmap + facet_nested(Hemolytic ~AntibioticUsage,
+               scales="free",
+               nest_line = TRUE)
+amp_sample_heatmap_hemo_abx
+
+amp_sample_heatmap_hemo_indoor <- amp_sample_heatmap + facet_nested(Hemolytic ~IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amp_sample_heatmap_hemo_indoor
+
+amp_sample_heatmap_hemo_abx_indoor <- amp_sample_heatmap + facet_nested(Hemolytic ~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE)
+amp_sample_heatmap_hemo_abx_indoor
+```
+
+```{r}
+ggsave(amp_sample_heatmap, filename = "amp_sample_heatmap.png", device = "png")
+ggsave(amp_sample_heatmap_abx_indoor, filename = "amp_sample_heatmap_abx_indoor.png", device = "png")
+ggsave(amp_sample_heatmap_abx, filename = "amp_sample_heatmap_abx.png", device = "png")
+ggsave(amp_sample_heatmap_indoor, filename = "amp_sample_heatmap_indoor.png", device = "png")
+ggsave(amp_sample_heatmap_hemo, filename = "amp_sample_heatmap_hemo.png", device = "png")
+ggsave(amp_sample_heatmap_hemo_abx, filename = "amp_sample_heatmap_hemo_abx.png", device = "png")
+ggsave(amp_sample_heatmap_hemo_indoor, filename = "amp_sample_heatmap_hemo_indoor.png", device = "png")
+ggsave(amp_sample_heatmap_hemo_abx_indoor, filename = "amp_sample_heatmap_hemo_abx_indoor.png", device = "png")
+
+```
+
+
+## Correlation Heatmaps
+
+### AMR and AMP
+[Link to article explaining Pearson vs Spearman correlations](https://towardsdatascience.com/clearly-explained-pearson-v-s-spearman-correlation-coefficient-ada2f473b8)
+
+https://www.r-bloggers.com/2015/02/spearman-correlation-heat-map-with-correlation-coefficients-and-significance-levels-in-r/
+
+```{r}
+# abbreviateSTR <- function(value, prefix){  # format string more concisely
+#   lst = c()
+#   for (item in value) {
+#     if (is.nan(item) || is.na(item)) { # if item is NaN return empty string
+#       lst <- c(lst, '')
+#       next
+#     }
+#     item <- round(item, 2) # round to two digits
+#     if (item == 0) { # if rounding results in 0 clarify
+#       item = '<.01'
+#     }
+#     item <- as.character(item)
+#     item <- sub("(^[0])+", "", item)    # remove leading 0: 0.05 -> .05
+#     item <- sub("(^-[0])+", "-", item)  # remove leading -0: -0.05 -> -.05
+#     lst <- c(lst, paste(prefix, item, sep = ""))
+#   }
+#   return(lst)
+# }
+```
+
+
+```{r}
+amp_corr_matrix <- amp_table %>% 
+  select(!c("Hemolytic_probability_avg")) %>%
+  pivot_wider(names_from = "sample_id", values_from = "CPM") %>%
+  tidyr::unite(col="AMPfam_Hemo", AMP_family, Hemolytic, remove = TRUE) %>%
+  column_to_rownames("AMPfam_Hemo")
+
+amp_corr_matrix_antibiotic <- amp_corr_matrix %>% select("A3_1":"A9_2")
+amp_corr_matrix_antibioticFree <- amp_corr_matrix %>% select("AF3_1":"AF8_2")
+
+amp_corr_matrix_outdoor <- amp_corr_matrix %>% dplyr::select(contains("_1"))
+amp_corr_matrix_indoor <- amp_corr_matrix %>% dplyr::select(contains("_2"))
+                     
+amr_gene_corr_matrix <- amr_table %>% 
+  select(!c("probability_avg")) %>%
+  pivot_wider(names_from = "sample_id", values_from = "CPM") %>%
+  select(!c("predicted_ARG-class")) %>%
+  group_by(`#ARG`) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup %>%
+  column_to_rownames("#ARG")
+
+amr_class_corr_matrix <- amr_table %>% 
+  select(!c("probability_avg")) %>%
+  pivot_wider(names_from = "sample_id", values_from = "CPM") %>%
+  select(!c("#ARG")) %>%
+  group_by(`predicted_ARG-class`) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() %>%
+  column_to_rownames("predicted_ARG-class")
+
+#  ARG gene tables
+amr_gene_corr_matrix_antibiotic <- amr_gene_corr_matrix %>% dplyr::select("A3_1":"A9_2")
+amr_gene_corr_matrix_antibioticFree <- amr_gene_corr_matrix %>% dplyr::select("AF3_1":"AF8_2")
+
+# 1 = Outdoor, 2 = Indoor
+amr_gene_corr_matrix_outdoor <- amr_gene_corr_matrix %>% dplyr::select(contains("_1"))
+amr_gene_corr_matrix_indoor <- amr_gene_corr_matrix %>% dplyr::select(contains("_2"))
+
+#ARG class tables
+amr_class_corr_matrix_antibiotic <- amr_class_corr_matrix %>% dplyr::select("A3_1":"A9_2")
+amr_class_corr_matrix_antibioticFree <- amr_class_corr_matrix %>% dplyr::select("AF3_1":"AF8_2")
+
+# 1 = Outdoor, 2 = Indoor
+amr_class_corr_matrix_outdoor <- amr_class_corr_matrix %>% dplyr::select(contains("_1"))
+amr_class_corr_matrix_indoor <- amr_class_corr_matrix %>% dplyr::select(contains("_2"))
+```
+
+### Rcorr Correlations
+
+```{r}
+
+#AMR gene
+amr_gene_rcorr <- rcorr(t(amr_gene_corr_matrix), type="pearson")
+amr_gene_rcorr_antibiotic <- rcorr(t(amr_gene_corr_matrix_antibiotic), type="pearson")
+amr_gene_rcorr_antibioticFree <- rcorr(t(amr_gene_corr_matrix_antibioticFree), type="pearson")
+amr_gene_rcorr_outdoor <- rcorr(t(amr_gene_corr_matrix_outdoor), type="pearson")
+amr_gene_rcorr_indoor <- rcorr(t(amr_gene_corr_matrix_indoor), type="pearson")
+
+#AMR class
+amr_class_rcorr <- rcorr(t(amr_class_corr_matrix), type="pearson")
+amr_class_rcorr_antibiotic <- rcorr(t(amr_class_corr_matrix_antibiotic), type="pearson")
+amr_class_rcorr_antibioticFree <- rcorr(t(amr_class_corr_matrix_antibioticFree), type="pearson")
+amr_class_rcorr_outdoor <- rcorr(t(amr_class_corr_matrix_outdoor), type="pearson")
+amr_class_rcorr_indoor <- rcorr(t(amr_class_corr_matrix_indoor), type="pearson")
+```
+
+
+
+```{r}
+rcorr_cleanupAndPlotting <- function(rcorr_obj, pal_choice){
+
+ # broom::tidy(rcorr_obj) %>%
+ # mutate(p.value = fifelse(p.value <= 0.05,                                 #filtering and formatting labels for significant correlations
+ #                          fifelse(p.value <= 0.01, "< 0.01",
+ #                            substr(as.character(p.value), 1, 4)), ""),
+ #          across(everything(), ~replace_na(.x, ""))) %>%
+ # mutate(estimate = as.numeric(estimate))
+
+# amr_rcorr_tidy <-broom::tidy(rcorr_obj) %>%
+#   mutate(p.label = fifelse(p.value <= 0.05,                    #filtering and formatting labels for significant correlations
+#                           fifelse(as.numeric(p.value) <= 0.01, "< 0.01",
+#                             substr(as.character(p.value), 1, 4)), ""),
+#           across(everything(), ~replace_na(.x, 0))) %>%
+#   mutate(estimate = as.numeric(estimate)) %>%
+#   filter(estimate != "NA")
+
+# rcorr_dendro <- as.dendrogram(hclust(d = dist(x = rcorr_obj[["r"]])))
+# rcorr_dendro_order <- order.dendrogram(rcorr_dendro)
+# 
+
+# amr_rcorr_tidy$column1 <- factor(x = amr_rcorr_tidy$column1,
+#                                levels = unique(amr_rcorr_tidy$column1)[rcorr_dendro_order], 
+#                                ordered = TRUE)
+# amr_rcorr_tidy$column2 <- factor(x = amr_rcorr_tidy$column2,
+#                                levels = unique(amr_rcorr_tidy$column2)[rcorr_dendro_order], 
+#                                ordered = TRUE)
+
+# amr_rcorr_tidy %>% 
+#   arrange(p.value) %>%
+#   mutate(column1=factor(column1, levels=unique(column1)),
+#          column2=factor(column2, levels=unique(column2))) %>%
+# ggplot(amr_rcorr_tidy, aes(x=reorder(column1, estimate), y=column1, fill=estimate))+
+# ggplot(amr_rcorr_tidy, aes(x=column1, y=column2, fill=estimate))+
+#   geom_raster() +
+  # annotate("text", x=column1, y=column2, label=vars(p.label), parse=TRUE)+
+ggcorrplot(replace_na(rcorr_obj[["r"]],0), 
+           hc.order = TRUE, 
+           p.mat = replace_na(rcorr_obj[["P"]],0),
+           colors = c(pal_choice[length(pal_choice)], NA, pal_choice[1]),
+           sig.level = 0.05,
+           insig = "blank",
+           show.diag = FALSE) +
+  # geom_text(aes(label=amr_rcorr_tidy$p.label),  size=2) +
+  # scale_fill_gradient2(low = pal_choice[length(pal_choice)], mid=pal_choice[length(pal_choice)/2], high = pal_choice[1], limits=c(-1,1)) +
+  labs(fill = "Pearson Correlation\nCoefficient") +
+  theme(axis.ticks.x=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text = element_text(size = 17/.pt),
+        axis.text.x = element_text(angle = 90, vjust = 0.1),
+        axis.title = element_blank(),
+        plot.title = element_text(hjust=0.5),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.box.background = element_rect(fill = "transparent", color = NA))
+
+}
+
+```
+
+## Plottting resistance gene pairwise correlations
+
+```{r}
+print_and_save <- function(ggplot_name, plot_width, plot_height){
+  plot_filename <- deparse(substitute(ggplot_name))
+  ggsave(filename = paste0(plot_filename, ".png"), plot = ggplot_name, device = "png", width = plot_width, height = plot_height)
+  ggplot_name
+}
+
+```
+
+
+### AMR genes
+```{r}
+
+amr_gene_heatmap_all <- rcorr_cleanupAndPlotting(amr_gene_rcorr, chicken_palette_10) + ggtitle("All Samples")
+amr_gene_heatmap_antibiotic <- rcorr_cleanupAndPlotting(amr_gene_rcorr_antibiotic, chicken_palette_10) + ggtitle("Antibiotic")
+amr_gene_heatmap_antibioticfree <-rcorr_cleanupAndPlotting(amr_gene_rcorr_antibioticFree,chicken_palette_10) + ggtitle("Antibiotic Free")
+amr_gene_heatmap_outdoor <-rcorr_cleanupAndPlotting(amr_gene_rcorr_outdoor,chicken_palette_10) + ggtitle("Outdoor")
+amr_gene_heatmap_indoor <-rcorr_cleanupAndPlotting(amr_gene_rcorr_indoor,chicken_palette_10) + ggtitle("Indoor")
+
+heatmap_width = 24
+heatmap_height = 12
+
+print_and_save(amr_gene_heatmap_all, heatmap_width, heatmap_height)
+print_and_save(amr_gene_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(amr_gene_heatmap_antibioticfree, heatmap_width, heatmap_height)
+print_and_save(amr_gene_heatmap_outdoor, heatmap_width, heatmap_height)
+print_and_save(amr_gene_heatmap_indoor, heatmap_width, heatmap_height)
+```
+
+
+### AMR classes
+```{r}
+
+amr_class_heatmap_all <- rcorr_cleanupAndPlotting(amr_class_rcorr, chicken_palette_10) + ggtitle("All Samples")
+amr_class_heatmap_antibiotic <- rcorr_cleanupAndPlotting(amr_class_rcorr_antibiotic, chicken_palette_10) + ggtitle("Antibiotic")
+amr_class_heatmap_antibioticfree <-rcorr_cleanupAndPlotting(amr_class_rcorr_antibioticFree,chicken_palette_10) + ggtitle("Antibiotic Free")
+amr_class_heatmap_outdoor <-rcorr_cleanupAndPlotting(amr_class_rcorr_outdoor,chicken_palette_10) + ggtitle("Outdoor")
+amr_class_heatmap_indoor <-rcorr_cleanupAndPlotting(amr_class_rcorr_indoor,chicken_palette_10) + ggtitle("Indoor")
+
+print_and_save(amr_class_heatmap_all, heatmap_width, heatmap_height)
+print_and_save(amr_class_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(amr_class_heatmap_antibioticfree, heatmap_width, heatmap_height)
+print_and_save(amr_class_heatmap_outdoor, heatmap_width, heatmap_height)
+print_and_save(amr_class_heatmap_indoor, heatmap_width, heatmap_height)
+
+
+```
+
+
+#### AMR + Phage Pfam Correlation
+```{r}
+
+phage_pfam_corr_matrix  <- contig_id_conversion_table %>% 
+  left_join(select(vibrant_coassembly_annotations, contig_ID, `Pfam name`), by =c("megahit_contig_id"="contig_ID")) %>%
+  dplyr::rename("pfam_name"=`Pfam name`) %>%
+  left_join(CPM_sampleAbundance, by="anvio_contig_id") %>%
+  dplyr::select(-anvio_contig_id) %>%
+  group_by(pfam_name) %>%
+  summarise(across(starts_with("A"), ~ sum(., is.na(.), 0))) %>%
+  ungroup() %>%
+  filter(pfam_name != "NA") %>%
+  column_to_rownames(var="pfam_name")
+
+```
+
+
+
+```{r}
+
+
+twoTable_rcorr_cleanupandGraphing <- function(rcorr_obj, table1, table2, pal_choice){
+
+ twoTable_rcorr_tidy <- broom::tidy(rcorr_obj) %>%
+  filter(column1 %in% rownames(table2) & column2 %in% rownames(table1)) %>%
+   # pivot_wider(names_from = c("column1", "column2"), values_from = "estimate")
+  mutate(p.value = fifelse(p.value <= 0.05,
+                          fifelse(p.value <= 0.01, "< 0.01",
+                            substr(as.character(p.value), 1, 4)), ""),
+          across(everything(), ~replace_na(.x, ""))) %>%
+ mutate(estimate = as.numeric(estimate))
+
+heatmap_ggplot <- ggplot(twoTable_rcorr_tidy, aes(y=column1, x=column2, fill=estimate))+
+  geom_raster() +
+  #facet_grid(cols = vars(AntibioticUsage), rows = vars(Hemolytic),scales="free") +
+  #annotate("text", x=column1, y=column2, label=vars(p.value), parse=TRUE)+
+  geom_text(aes(label=p.value),  size=2) +
+
+#  
+# heatmap_ggplot <- ggcorrplot(replace_na(rcorr_obj[["r"]],0), 
+#            hc.order = TRUE, 
+#            p.mat = replace_na(rcorr_obj[["P"]],0),
+#            colors = c(pal_choice[length(pal_choice)], NA, pal_choice[1]),
+#            sig.level = 0.05,
+#            insig = "blank") +
+   scale_fill_gradient2(low = pal_choice[length(pal_choice)], mid=pal_choice[length(pal_choice)/2], high = pal_choice[1], limits=c(-1,1)) +
+  labs(fill = "Pearson\nCorrelation\nCoefficient") +
+  theme(axis.ticks.x=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text = element_text(size=15/.pt),
+       axis.text.x = element_text(angle = 45),
+       axis.title = element_blank(),
+       plot.title = element_text(hjust=0.5),
+       legend.title = element_text(size=7),
+       legend.text = element_text(size=7),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA),
+       legend.background = element_rect(fill = "transparent", color = NA),
+       legend.box.background = element_rect(fill = "transparent", color = NA))
+
+heatmap_ggplot
+}
+
+# ggsave(filename = "amr_phagepfam_rcorr_heatmap_ggplot.png", plot = amr_phagepfam_rcorr_heatmap_ggplot, device = "png", width = 6, height = 5)
+
+#rcorr_cleanupAndPlotting(amr_phagepfam_rcorr, chicken_palette_10)
+```
+
+```{r}
+
+
+twoTable_rcorr_cleanupandGraphing_ggcorrplot <- function(rcorr_obj, table1, table2, pal_choice){
+
+twoTable_rcorr_tidy_estimate <- rcorr_obj[["r"]] %>%
+    as_tibble(rownames = NA) %>%
+    filter(row.names(.) %in% row.names(table1)) %>%
+    rownames_to_column(var = "rcorr_rownames") %>%
+    dplyr::select(c("rcorr_rownames", any_of(row.names(table2)))) %>%
+    column_to_rownames(var = "rcorr_rownames") %>%
+    mutate(across(everything(), ~replace_na(.x, 0)))
+print(twoTable_rcorr_tidy_estimate)
+
+twoTable_rcorr_tidy_pvalue <- rcorr_obj[["P"]] %>%
+    as_tibble(rownames = NA) %>%
+    filter(row.names(.) %in% row.names(table1)) %>%
+    rownames_to_column(var = "rcorr_rownames") %>%
+    dplyr::select(c("rcorr_rownames", any_of(row.names(table2)))) %>%
+    column_to_rownames(var = "rcorr_rownames") %>%
+    mutate(across(everything(), ~replace_na(.x, 0)))
+print(twoTable_rcorr_tidy_estimate)
+ 
+heatmap_ggplot <- ggcorrplot(twoTable_rcorr_tidy_estimate,
+           # hc.order = TRUE,
+           # hc.method = "average",
+           p.mat = twoTable_rcorr_tidy_pvalue,
+           colors = c(pal_choice[length(pal_choice)], NA, pal_choice[1]),
+           sig.level = 0.05,
+           insig = "blank") + 
+   # scale_fill_gradient2(low = pal_choice[length(pal_choice)], mid=pal_choice[length(pal_choice)/2], high = pal_choice[1], limits=c(-1,1)) +
+  labs(fill = "Pearson\nCorrelation\nCoefficient") +
+  theme(axis.ticks.x=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text = element_text(size=15/.pt),
+       axis.text.x = element_text(angle = 90),
+       axis.title = element_blank(),
+       plot.title = element_text(hjust=0.5),
+       legend.title = element_text(size=15/.pt),
+       legend.text = element_text(size=15/.pt),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA),
+       legend.background = element_rect(fill = "transparent", color = NA),
+       legend.box.background = element_rect(fill = "transparent", color = NA))
+
+# heatmap_ggplot
+}
+
+
+
+
+```
+
+### AMR and Phage Pfam Heatmap
+```{r}
+
+amr_gene_phagepfam_rcorr <- rcorr(t(amr_gene_corr_matrix), t(phage_pfam_corr_matrix), type = "pearson")
+amr_class_phagepfam_rcorr <- rcorr(t(amr_class_corr_matrix), t(phage_pfam_corr_matrix), type = "pearson")
+
+
+amr_gene_phagepfam_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amr_gene_phagepfam_rcorr, phage_pfam_corr_matrix, amr_gene_corr_matrix, chicken_palette_10) + ggtitle("AMR Gene Pearson Correlation to\n Phage Pfam Annotated Genes")
+amr_class_phagepfam_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amr_class_phagepfam_rcorr,  phage_pfam_corr_matrix, amr_class_corr_matrix, chicken_palette_10) + ggtitle("AMR Class Pearson Correlation to\n Phage Pfam Annotated Genes")
+
+
+print_and_save(amr_gene_phagepfam_heatmap, 30, 25)
+print_and_save(amr_class_phagepfam_heatmap, 30, 20)
+
+
+```
+
+
+## AMP heatmaps
+
+```{r}
+#AMR class
+amp_rcorr <- rcorr(t(amp_corr_matrix), type="pearson")
+amp_rcorr_antibiotic <- rcorr(t(amp_corr_matrix_antibiotic), type="pearson")
+amp_rcorr_antibioticFree <- rcorr(t(amp_corr_matrix_antibioticFree), type="pearson")
+amp_rcorr_outdoor <- rcorr(t(amp_corr_matrix_outdoor), type="pearson")
+amp_rcorr_indoor <- rcorr(t(amp_corr_matrix_indoor), type="pearson")
+```
+
+
+```{r}
+amp_heatmap_all <- rcorr_cleanupAndPlotting(amp_rcorr, chicken_palette_10) + ggtitle("All Samples")
+amp_heatmap_antibiotic <- rcorr_cleanupAndPlotting(amp_rcorr_antibiotic, chicken_palette_10) + ggtitle("Antibiotic")
+amp_heatmap_antibioticfree <-rcorr_cleanupAndPlotting(amp_rcorr_antibioticFree,chicken_palette_10) + ggtitle("Antibiotic Free")
+amp_heatmap_outdoor <-rcorr_cleanupAndPlotting(amp_rcorr_outdoor,chicken_palette_10) + ggtitle("Outdoor")
+amp_heatmap_indoor <-rcorr_cleanupAndPlotting(amp_rcorr_indoor,chicken_palette_10) + ggtitle("Indoor")
+
+print_and_save(amp_heatmap_all, heatmap_width, heatmap_height)
+print_and_save(amp_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(amp_heatmap_antibioticfree, heatmap_width, heatmap_height)
+print_and_save(amp_heatmap_outdoor, heatmap_width, heatmap_height)
+print_and_save(amp_heatmap_indoor, heatmap_width, heatmap_height)
+
+```
+
+
+### AMR and AMP Correlations
+
+```{r}
+
+amr_gene_amp_rcorr <- rcorr(t(amr_gene_corr_matrix), t(amp_corr_matrix), type = "pearson")
+amr_gene_amp_rcorr_antibiotic <- rcorr(t(amr_gene_corr_matrix_antibiotic), t(amp_corr_matrix_antibiotic), type = "pearson")
+amr_gene_amp_rcorr_antibioticFree <- rcorr(t(amr_gene_corr_matrix_antibioticFree), t(amp_corr_matrix_antibioticFree), type = "pearson")
+
+
+amr_class_amp_rcorr <- rcorr(t(amr_class_corr_matrix), t(amp_corr_matrix), type = "pearson")
+amr_class_amp_rcorr_antibiotic <- rcorr(t(amr_class_corr_matrix_antibiotic), t(amp_corr_matrix_antibiotic), type = "pearson")
+amr_class_amp_rcorr_antibioticFree <- rcorr(t(amr_class_corr_matrix_antibioticFree), t(amp_corr_matrix_antibioticFree), type = "pearson")
+
+amr_gene_amp_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amr_gene_amp_rcorr, amr_gene_corr_matrix, amp_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of AMR Genes and AMP Classes for All Samples")
+amr_gene_amp_heatmap_antibiotic <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amr_gene_amp_rcorr_antibiotic, amr_gene_corr_matrix_antibiotic, amp_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of AMR Genes and AMP Classes for Antibiotic Samples")
+amr_gene_amp_heatmap_antibioticFree <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amr_gene_amp_rcorr_antibioticFree, amr_gene_corr_matrix_antibioticFree, amp_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of AMR Genes and AMP Classes for Antibiotic-Free Samples")
+
+amr_class_amp_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amr_class_amp_rcorr, amr_class_corr_matrix, amp_corr_matrix, chicken_palette_10)+ ggtitle("Pearson Correlation of AMR Classes and AMP Classes for All Samples")
+amr_class_amp_heatmap_antibiotic <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amr_class_amp_rcorr_antibiotic, amr_class_corr_matrix_antibiotic, amp_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of AMR Classes and AMP Classes for Antibiotic Samples")
+amr_class_amp_heatmap_antibioticFree <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amr_class_amp_rcorr_antibioticFree, amr_class_corr_matrix_antibioticFree, amp_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of AMR Classes and AMP Classes for Antibiotic-Free Samples")
+
+print_and_save(amr_gene_amp_heatmap, heatmap_width, heatmap_height)
+print_and_save(amr_gene_amp_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(amr_gene_amp_heatmap_antibioticFree, heatmap_width, heatmap_height)
+
+
+print_and_save(amr_class_amp_heatmap, heatmap_width, heatmap_height)
+print_and_save(amr_class_amp_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(amr_class_amp_heatmap_antibioticFree, heatmap_width, heatmap_height)
+
+```
+
+### AMP and Phage Pfam Correlation
+```{r}
+amp_phagepfam_rcorr <- rcorr(t(phage_pfam_corr_matrix), t(amp_corr_matrix), type = "pearson")
+#amp_phagepfam_rcorr <- rcorr(t(amp_corr_matrix),t(phage_pfam_corr_matrix), type = "pearson")
+
+amp_phagepfam_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amp_phagepfam_rcorr, phage_pfam_corr_matrix, amp_corr_matrix, chicken_palette_10) + ggtitle("AMP Class Pearson Correlation to\n Phage Pfam Annotated Genes")
+
+print_and_save(amp_phagepfam_heatmap, 30, 20)
+
+```
+
+
+
+
+
+## VirHostMatcher Correlations
+```{r}
+virhost_corr_matrix  <- contig_id_conversion_table %>% 
+  left_join(select(virhostmatcher_results, megahit_contig_id, hostPhylum), by =c("megahit_contig_id")) %>%
+  left_join(CPM, by=c("anvio_contig_id"="contig_id")) %>%
+  dplyr::select(-c("anvio_contig_id","megahit_contig_id","virsorter_contig_id")) %>%
+  group_by(hostPhylum) %>%
+  summarise(across(starts_with("A"), ~ sum(., is.na(.), 0))) %>%
+  ungroup() %>%
+  filter(hostPhylum != "NA") %>%
+  column_to_rownames(var="hostPhylum")
+
+#  Antibiotic / Antibiotic Free Tables
+virhost_corr_matrix_antibiotic <- virhost_corr_matrix %>% dplyr::select("A3_1":"A9_2")
+virhost_corr_matrix_antibioticFree <- virhost_corr_matrix %>% dplyr::select("AF3_1":"AF8_2")
+
+# 1 = Outdoor, 2 = Indoor
+virhost_corr_matrix_outdoor <- virhost_corr_matrix %>% dplyr::select(contains("_1"))
+virhost_corr_matrix_indoor <- virhost_corr_matrix %>% dplyr::select(contains("_2"))
+
+```
+
+```{r}
+phagehost_amr_gene_rcorr <- rcorr(t(virhost_corr_matrix), t(amr_gene_corr_matrix), type = "pearson")
+phagehost_amr_class_rcorr <- rcorr(t(virhost_corr_matrix), t(amr_class_corr_matrix), type = "pearson")
+phagehost_amp_rcorr <- rcorr(t(virhost_corr_matrix), t(amp_corr_matrix), type = "pearson")
+phagehost_phagepfam_rcorr <- rcorr(t(phage_pfam_corr_matrix), t(virhost_corr_matrix), type = "pearson")
+
+
+
+phagehost_amr_gene_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phagehost_amr_gene_rcorr, virhost_corr_matrix, amr_gene_corr_matrix, chicken_palette_10)
+phagehost_amr_class_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phagehost_amr_class_rcorr, virhost_corr_matrix, amr_class_corr_matrix, chicken_palette_10)
+phagehost_amp_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phagehost_amp_rcorr, virhost_corr_matrix, amp_corr_matrix, chicken_palette_10)
+phagehost_phagepfam_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phagehost_phagepfam_rcorr, virhost_corr_matrix, phage_pfam_corr_matrix, chicken_palette_10)
+
+print_and_save(phagehost_amr_gene_heatmap, heatmap_width, heatmap_height)
+print_and_save(phagehost_amr_class_heatmap, heatmap_width, heatmap_height)
+print_and_save(phagehost_amp_heatmap, heatmap_width, heatmap_height)
+print_and_save(phagehost_phagepfam_heatmap, 25,30)
+
+#ggsave(filename = "amp_phagepfam_heatmap.png", plot = amp_phagepfam_heatmap, device = "png", width = heatmap_width, height = heatmap_height)
+```
+
+
+```{r}
+virhost_rcorr <- rcorr(t(virhost_corr_matrix), type="pearson")
+virhost_rcorr_antibiotic <- rcorr(t(virhost_corr_matrix_antibiotic), type="pearson")
+virhost_rcorr_antibioticFree <- rcorr(t(virhost_corr_matrix_antibioticFree), type="pearson")
+virhost_rcorr_indoor <- rcorr(t(virhost_corr_matrix_indoor), type="pearson")
+virhost_rcorr_outdoor <- rcorr(t(virhost_corr_matrix_outdoor), type="pearson")
+
+
+virhost_heatmap_all <- rcorr_cleanupAndPlotting(virhost_rcorr, chicken_palette_10) + ggtitle("All Samples")
+virhost_heatmap_antibiotic <- rcorr_cleanupAndPlotting(virhost_rcorr_antibiotic, chicken_palette_10) + ggtitle("Antibiotic")
+virhost_heatmap_antibioticfree <-rcorr_cleanupAndPlotting(virhost_rcorr_antibioticFree,chicken_palette_10) + ggtitle("Antibiotic Free")
+virhost_heatmap_outdoor <-rcorr_cleanupAndPlotting(virhost_rcorr_outdoor,chicken_palette_10) + ggtitle("Outdoor")
+virhost_heatmap_indoor <-rcorr_cleanupAndPlotting(virhost_rcorr_indoor,chicken_palette_10) + ggtitle("Indoor")
+
+print_and_save(virhost_heatmap_all, 7, 7)
+print_and_save(virhost_heatmap_antibiotic, 7, 7)
+print_and_save(virhost_heatmap_antibioticfree, 7, 7)
+print_and_save(virhost_heatmap_outdoor, 7, 7)
+print_and_save(virhost_heatmap_indoor,7, 7)
+
+
+
+```
+
+### Phylum Heatmaps
+```{r}
+phylum_corr_matrix  <- contig_id_conversion_table %>% 
+  left_join(select(taxa_CPM_table, megahit_contig_id, phylum), by =c("megahit_contig_id")) %>%
+  left_join(CPM, by=c("anvio_contig_id"="contig_id")) %>%
+  dplyr::select(-c("anvio_contig_id","megahit_contig_id","virsorter_contig_id")) %>%
+  group_by(phylum) %>%
+  summarise(across(starts_with("A"), ~ sum(., is.na(.), 0))) %>%
+  ungroup() %>%
+  filter(phylum != "NA") %>%
+  column_to_rownames(var="phylum")
+
+#  Antibiotic / Antibiotic Free Tables
+phylum_corr_matrix_antibiotic <- phylum_corr_matrix %>% dplyr::select("A3_1":"A9_2")
+phylum_corr_matrix_antibioticFree <- phylum_corr_matrix %>% dplyr::select("AF3_1":"AF8_2")
+
+# 1 = Outdoor, 2 = Indoor
+phylum_corr_matrix_outdoor <- phylum_corr_matrix %>% dplyr::select(contains("_1"))
+phylum_corr_matrix_indoor <- phylum_corr_matrix %>% dplyr::select(contains("_2"))
+```
+
+```{r}
+phylum_rcorr <- rcorr(t(phylum_corr_matrix), type="pearson")
+phylum_rcorr_antibiotic <- rcorr(t(phylum_corr_matrix_antibiotic), type="pearson")
+phylum_rcorr_antibioticFree <- rcorr(t(phylum_corr_matrix_antibioticFree), type="pearson")
+phylum_rcorr_indoor <- rcorr(t(phylum_corr_matrix_indoor), type="pearson")
+phylum_rcorr_outdoor <- rcorr(t(phylum_corr_matrix_outdoor), type="pearson")
+
+
+phylum_heatmap_all <- rcorr_cleanupAndPlotting(phylum_rcorr, chicken_palette_10) + ggtitle("All Samples")
+phylum_heatmap_antibiotic <- rcorr_cleanupAndPlotting(phylum_rcorr_antibiotic, chicken_palette_10) + ggtitle("Antibiotic")
+phylum_heatmap_antibioticfree <-rcorr_cleanupAndPlotting(phylum_rcorr_antibioticFree,chicken_palette_10) + ggtitle("Antibiotic Free")
+phylum_heatmap_outdoor <-rcorr_cleanupAndPlotting(phylum_rcorr_outdoor,chicken_palette_10) + ggtitle("Outdoor")
+phylum_heatmap_indoor <-rcorr_cleanupAndPlotting(phylum_rcorr_indoor,chicken_palette_10) + ggtitle("Indoor")
+
+heatmap_width_phylum = 30
+heatmap_height_phylum = 30
+
+print_and_save(phylum_heatmap_all, heatmap_width_phylum, heatmap_height_phylum)
+print_and_save(phylum_heatmap_antibiotic, heatmap_width_phylum, heatmap_height_phylum)
+print_and_save(phylum_heatmap_antibioticfree, heatmap_width_phylum, heatmap_height_phylum)
+print_and_save(phylum_heatmap_outdoor, heatmap_width_phylum, heatmap_height_phylum)
+print_and_save(phylum_heatmap_indoor,heatmap_width_phylum, heatmap_height_phylum)
+
+
+
+```
+
+```{r}
+### amr gene
+phylum_amr_gene_rcorr <- rcorr(t(phylum_corr_matrix), t(amr_gene_corr_matrix), type = "pearson")
+phylum_amr_gene_antibiotic_rcorr <- rcorr(t(phylum_corr_matrix_antibiotic), t(amr_gene_corr_matrix_antibiotic), type = "pearson")
+phylum_amr_gene_antibioticFree_rcorr <- rcorr(t(phylum_corr_matrix_antibioticFree), t(amr_gene_corr_matrix_antibioticFree), type = "pearson")
+
+
+### amr class
+phylum_amr_class_rcorr <- rcorr(t(phylum_corr_matrix), t(amr_class_corr_matrix), type = "pearson")
+phylum_amr_class_antibiotic_rcorr <- rcorr(t(phylum_corr_matrix_antibiotic), t(amr_class_corr_matrix_antibiotic), type = "pearson")
+phylum_amr_class_antibioticFree_rcorr <- rcorr(t(phylum_corr_matrix_antibioticFree), t(amr_class_corr_matrix_antibioticFree), type = "pearson")
+
+
+###amp
+phylum_amp_rcorr <- rcorr(t(phylum_corr_matrix), t(amp_corr_matrix), type = "pearson")
+phylum_amp_antibiotic_rcorr <- rcorr(t(phylum_corr_matrix_antibiotic), t(amp_corr_matrix_antibiotic), type = "pearson")
+phylum_amp_antibioticFree_rcorr <- rcorr(t(phylum_corr_matrix_antibioticFree), t(amp_corr_matrix_antibioticFree), type = "pearson")
+
+###lysin
+phylum_lysin_rcorr <- rcorr(t(phylum_corr_matrix), t(lysin_corr_matrix), type = "pearson")
+phylum_lysin_antibiotic_rcorr <- rcorr(t(phylum_corr_matrix_antibiotic), t(lysin_corr_matrix_antibiotic), type = "pearson")
+phylum_lysin_antibioticFree_rcorr <- rcorr(t(phylum_corr_matrix_antibioticFree), t(lysin_corr_matrix_antibioticFree), type = "pearson")
+
+### phage_pfam
+phylum_phagepfam_rcorr <- rcorr(t(phage_pfam_corr_matrix), t(phylum_corr_matrix), type = "pearson")
+
+
+### virhostmatcher
+phylum_virhost_rcorr <- rcorr(t(phylum_corr_matrix), t(virhost_corr_matrix), type = "pearson")
+phylum_virhost_antibiotic_rcorr <- rcorr(t(phylum_corr_matrix_antibiotic), t(virhost_corr_matrix_antibiotic), type = "pearson")
+phylum_virhost_antibioticFree_rcorr <- rcorr(t(phylum_corr_matrix_antibioticFree), t(virhost_corr_matrix_antibioticFree), type = "pearson")
+
+####### generating ggplots
+
+phylum_amr_gene_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amr_gene_rcorr, phylum_corr_matrix, amr_gene_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and AMR Genes")
+
+phylum_amr_gene_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amr_gene_antibiotic_rcorr, phylum_corr_matrix_antibiotic, amr_gene_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and AMR Genes - Antibiotic Samples")
+
+phylum_amr_gene_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amr_gene_antibioticFree_rcorr, phylum_corr_matrix_antibioticFree, amr_gene_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and AMR Genes - Antibiotic Free Samples")
+
+###
+
+phylum_amr_class_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amr_class_rcorr, phylum_corr_matrix, amr_class_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of phylum Phyla and AMR Classes")
+
+phylum_amr_class_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amr_class_antibiotic_rcorr, phylum_corr_matrix_antibiotic, amr_class_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla and AMR Classes - Antibiotic Samples")
+
+phylum_amr_class_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amr_class_antibioticFree_rcorr, phylum_corr_matrix_antibioticFree, amr_class_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla and AMR Classes - Antibiotic Free Samples")
+
+###
+phylum_amp_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amp_rcorr, phylum_corr_matrix, amp_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Antimicrobial Peptide Genes")
+
+phylum_amp_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amp_antibiotic_rcorr, phylum_corr_matrix_antibiotic, amp_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Antimicrobial Peptide Genes - Antibiotic Samples")
+
+phylum_amp_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_amp_antibioticFree_rcorr, phylum_corr_matrix_antibioticFree, amp_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Antimicrobial Peptide Genes - Antibiotic Free Samples")
+
+###
+phylum_lysin_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_lysin_rcorr, phylum_corr_matrix, lysin_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Lysin Encoding Genes")
+
+phylum_lysin_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_lysin_antibiotic_rcorr, phylum_corr_matrix_antibiotic, lysin_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Lysin Encoding Genes - Antibiotic Samples")
+
+phylum_lysin_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_lysin_antibioticFree_rcorr, phylum_corr_matrix_antibioticFree, lysin_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Lysin Encoding Genes - Antibiotic Free Samples")
+
+
+###
+
+phylum_phagepfam_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_phagepfam_rcorr, phylum_corr_matrix, phage_pfam_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Phage Pfam Annotated Genes")
+
+phylum_virhost_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_virhost_rcorr, phylum_corr_matrix, virhost_corr_matrix,  chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Putative Phage Host Phyla")
+
+phylum_virhost_heatmap_antibiotic <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_virhost_antibiotic_rcorr, phylum_corr_matrix_antibiotic, virhost_corr_matrix_antibiotic,  chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Putative Phage Host Phyla - Antibiotic Samples")
+
+phylum_virhost_heatmap_antibioticFree <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(phylum_virhost_antibioticFree_rcorr, phylum_corr_matrix_antibioticFree, virhost_corr_matrix_antibioticFree,  chicken_palette_10) + ggtitle("Pearson Correlation of Phyla \n and Putative Phage Host Phyla - Antibiotic Free Samples")
+
+### displaying ggplot and saving
+# print_and_save(    , heatmap_width, heatmap_height)
+
+print_and_save(phylum_amr_gene_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_amr_gene_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_amr_gene_antibioticFree_heatmap, heatmap_width, heatmap_height)  
+
+print_and_save(phylum_amr_class_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_amr_class_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_amr_class_antibioticFree_heatmap, heatmap_width, heatmap_height) 
+
+
+print_and_save(phylum_amp_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_amp_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_amp_antibioticFree_heatmap, heatmap_width, heatmap_height) 
+
+print_and_save(phylum_lysin_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_lysin_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_lysin_antibioticFree_heatmap, heatmap_width, heatmap_height) 
+
+
+print_and_save(phylum_phagepfam_heatmap, 20, 30)
+print_and_save(phylum_virhost_heatmap, heatmap_width, heatmap_height) 
+print_and_save(phylum_virhost_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(phylum_virhost_heatmap_antibioticFree, heatmap_width, heatmap_height)
+
+# heatmap_width = 9
+# heatmap_height = 7
+
+
+
+```
+
+### Lysin Correlation Heatmaps
+
+```{r}
+
+lysin_corr_matrix  <- contig_id_conversion_table %>% 
+  left_join(select(phage_lysin_contig_ids, contig_ID, `VOG name`), by=c("megahit_contig_id"="contig_ID")) %>%
+  left_join(CPM, by=c("anvio_contig_id"="contig_id")) %>%
+  dplyr::select(-c("anvio_contig_id","megahit_contig_id","virsorter_contig_id")) %>%
+  group_by(`VOG name`) %>%
+  summarise(across(starts_with("A"), ~ sum(., is.na(.), 0))) %>%
+  ungroup() %>%
+  filter(`VOG name` != "NA") %>%
+  column_to_rownames(var="VOG name")
+
+
+```
+
+```{r}
+
+lysin_corr_matrix_antibiotic <- lysin_corr_matrix %>% dplyr::select("A3_1":"A9_2")
+lysin_corr_matrix_antibioticFree <- lysin_corr_matrix %>% dplyr::select("AF3_1":"AF8_2")
+
+# 1 = Outdoor, 2 = Indoor
+lysin_corr_matrix_outdoor <- lysin_corr_matrix %>% dplyr::select(contains("_1"))
+lysin_corr_matrix_indoor <- lysin_corr_matrix %>% dplyr::select(contains("_2"))
+```
+
+```{r}
+lysin_rcorr <- rcorr(t(lysin_corr_matrix), type="pearson")
+lysin_rcorr_antibiotic <- rcorr(t(lysin_corr_matrix_antibiotic), type="pearson")
+lysin_rcorr_antibioticFree <- rcorr(t(lysin_corr_matrix_antibioticFree), type="pearson")
+lysin_rcorr_outdoor <- rcorr(t(lysin_corr_matrix_outdoor), type="pearson")
+lysin_rcorr_indoor <- rcorr(t(lysin_corr_matrix_indoor), type="pearson")
+```
+
+
+```{r}
+lysin_heatmap_all <- rcorr_cleanupAndPlotting(lysin_rcorr, chicken_palette_10) + ggtitle("All Samples")
+lysin_heatmap_antibiotic <- rcorr_cleanupAndPlotting(lysin_rcorr_antibiotic, chicken_palette_10) + ggtitle("Antibiotic")
+lysin_heatmap_antibioticfree <-rcorr_cleanupAndPlotting(lysin_rcorr_antibioticFree,chicken_palette_10) + ggtitle("Antibiotic Free")
+lysin_heatmap_outdoor <-rcorr_cleanupAndPlotting(lysin_rcorr_outdoor,chicken_palette_10) + ggtitle("Outdoor")
+lysin_heatmap_indoor <-rcorr_cleanupAndPlotting(lysin_rcorr_indoor,chicken_palette_10) + ggtitle("Indoor")
+
+print_and_save(lysin_heatmap_all, 7, 7)
+print_and_save(lysin_heatmap_antibiotic, 7, 7)
+print_and_save(lysin_heatmap_antibioticfree, 7, 7)
+print_and_save(lysin_heatmap_outdoor, 7, 7)
+print_and_save(lysin_heatmap_indoor, 7, 7)
+
+```
+
+```{r}
+### amr gene
+lysin_amr_gene_rcorr <- rcorr(t(lysin_corr_matrix), t(amr_gene_corr_matrix), type = "pearson")
+lysin_amr_gene_antibiotic_rcorr <- rcorr(t(lysin_corr_matrix_antibiotic), t(amr_gene_corr_matrix_antibiotic), type = "pearson")
+lysin_amr_gene_antibioticFree_rcorr <- rcorr(t(lysin_corr_matrix_antibioticFree), t(amr_gene_corr_matrix_antibioticFree), type = "pearson")
+
+
+### amr class
+lysin_amr_class_rcorr <- rcorr(t(lysin_corr_matrix), t(amr_class_corr_matrix), type = "pearson")
+lysin_amr_class_antibiotic_rcorr <- rcorr(t(lysin_corr_matrix_antibiotic), t(amr_class_corr_matrix_antibiotic), type = "pearson")
+lysin_amr_class_antibioticFree_rcorr <- rcorr(t(lysin_corr_matrix_antibioticFree), t(amr_class_corr_matrix_antibioticFree), type = "pearson")
+
+
+###amp
+lysin_amp_rcorr <- rcorr(t(lysin_corr_matrix), t(amp_corr_matrix), type = "pearson")
+lysin_amp_antibiotic_rcorr <- rcorr(t(lysin_corr_matrix_antibiotic), t(amp_corr_matrix_antibiotic), type = "pearson")
+lysin_amp_antibioticFree_rcorr <- rcorr(t(lysin_corr_matrix_antibioticFree), t(amp_corr_matrix_antibioticFree), type = "pearson")
+
+### phage_pfam
+lysin_phagepfam_rcorr <- rcorr(t(phage_pfam_corr_matrix), t(lysin_corr_matrix), type = "pearson")
+
+
+### virhostmatcher
+lysin_virhost_rcorr <- rcorr(t(lysin_corr_matrix), t(virhost_corr_matrix), type = "pearson")
+lysin_virhost_antibiotic_rcorr <- rcorr(t(lysin_corr_matrix_antibiotic), t(virhost_corr_matrix_antibiotic), type = "pearson")
+lysin_virhost_antibioticFree_rcorr <- rcorr(t(lysin_corr_matrix_antibioticFree), t(virhost_corr_matrix_antibioticFree), type = "pearson")
+
+####### generating ggplots
+
+
+### amr gene
+lysin_amr_gene_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amr_gene_rcorr,  amr_gene_corr_matrix, lysin_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and AMR Genes") 
+
+lysin_amr_gene_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amr_gene_antibiotic_rcorr, amr_gene_corr_matrix_antibiotic, lysin_corr_matrix_antibiotic,  chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and AMR Genes - Antibiotic Samples") 
+
+lysin_amr_gene_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amr_gene_antibioticFree_rcorr, amr_gene_corr_matrix_antibioticFree, lysin_corr_matrix_antibioticFree,  chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and AMR Genes - Antibiotic Free Samples") 
+
+### amr class
+
+lysin_amr_class_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amr_class_rcorr, lysin_corr_matrix, amr_class_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups and AMR Classes")
+
+lysin_amr_class_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amr_class_antibiotic_rcorr, amr_class_corr_matrix_antibiotic,lysin_corr_matrix_antibiotic,  chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups and AMR Classes - Antibiotic Samples")
+
+lysin_amr_class_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amr_class_antibioticFree_rcorr, amr_class_corr_matrix_antibioticFree, lysin_corr_matrix_antibioticFree,  chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups and AMR Classes - Antibiotic Free Samples")
+
+### amp
+lysin_amp_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amp_rcorr, lysin_corr_matrix, amp_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and Antimicrobial Peptide Genes")
+
+lysin_amp_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amp_antibiotic_rcorr, lysin_corr_matrix_antibiotic, amp_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and Antimicrobial Peptide Genes - Antibiotic Samples")
+
+lysin_amp_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_amp_antibioticFree_rcorr, lysin_corr_matrix_antibioticFree, amp_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \nand Antimicrobial Peptide Genes - Antibiotic Free Samples")
+
+### phage pfam
+
+lysin_phagepfam_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_phagepfam_rcorr,  phage_pfam_corr_matrix,lysin_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and Phage Pfam Annotated Genes")
+
+### virhost phyla
+
+lysin_virhost_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_virhost_rcorr, lysin_corr_matrix, virhost_corr_matrix,  chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and Putative Phage Host Phyla")
+lysin_virhost_heatmap_antibiotic <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_virhost_antibiotic_rcorr, lysin_corr_matrix_antibiotic, virhost_corr_matrix_antibiotic,  chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and Putative Phage Host Phyla - Antibiotic Samples")
+lysin_virhost_heatmap_antibioticFree <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(lysin_virhost_antibioticFree_rcorr, lysin_corr_matrix_antibioticFree, virhost_corr_matrix_antibioticFree,  chicken_palette_10) + ggtitle("Pearson Correlation of Lysin Viral Orthologous Groups \n and Putative Phage Host Phyla - Antibiotic Free Samples")
+
+### displaying ggplot and saving
+# print_and_save(    , heatmap_width, heatmap_height)
+
+print_and_save(lysin_amr_gene_heatmap, heatmap_width, heatmap_height) 
+print_and_save(lysin_amr_gene_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(lysin_amr_gene_antibioticFree_heatmap, heatmap_width, heatmap_height)  
+
+print_and_save(lysin_amr_class_heatmap, heatmap_width, heatmap_height) 
+print_and_save(lysin_amr_class_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(lysin_amr_class_antibioticFree_heatmap, heatmap_width, heatmap_height) 
+
+
+print_and_save(lysin_amp_heatmap, heatmap_width, heatmap_height) 
+print_and_save(lysin_amp_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(lysin_amp_antibioticFree_heatmap, heatmap_width, heatmap_height) 
+
+
+print_and_save(lysin_phagepfam_heatmap, 30, 20)
+print_and_save(lysin_virhost_heatmap, heatmap_width, heatmap_height) 
+print_and_save(lysin_virhost_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(lysin_virhost_heatmap_antibioticFree, heatmap_width, heatmap_height)
+
+# heatmap_width = 9
+# heatmap_height = 7
+
+
+
+```
+
+
+### Auxillary Metabolic Gene Correlations
+
+```{r}
+amg_corr_matrix  <- contig_id_conversion_table %>% 
+  left_join(select(vibrant_coassembly_AMG, contig_ID, `Pfam name`), by=c("megahit_contig_id"="contig_ID")) %>%
+  left_join(CPM, by=c("anvio_contig_id"="contig_id")) %>%
+  dplyr::select(-c("anvio_contig_id","megahit_contig_id","virsorter_contig_id")) %>%
+  group_by(`Pfam name`) %>%
+  summarise(across(starts_with("A"), ~ sum(., is.na(.), 0))) %>%
+  ungroup() %>%
+  filter(`Pfam name` != "NA") %>%
+  column_to_rownames(var="Pfam name")
+
+
+```
+
+```{r}
+
+amg_corr_matrix_antibiotic <- amg_corr_matrix %>% dplyr::select("A3_1":"A9_2")
+amg_corr_matrix_antibioticFree <- amg_corr_matrix %>% dplyr::select("AF3_1":"AF8_2")
+
+# 1 = Outdoor, 2 = Indoor
+amg_corr_matrix_outdoor <- amg_corr_matrix %>% dplyr::select(contains("_1"))
+amg_corr_matrix_indoor <- amg_corr_matrix %>% dplyr::select(contains("_2"))
+```
+
+```{r}
+###self pairwise
+amg_rcorr <- rcorr(t(amg_corr_matrix), type="pearson")
+amg_rcorr_antibiotic <- rcorr(t(amg_corr_matrix_antibiotic), type="pearson")
+amg_rcorr_antibioticFree <- rcorr(t(amg_corr_matrix_antibioticFree), type="pearson")
+amg_rcorr_outdoor <- rcorr(t(amg_corr_matrix_outdoor), type="pearson")
+amg_rcorr_indoor <- rcorr(t(amg_corr_matrix_indoor), type="pearson")
+
+
+amg_heatmap_all <- rcorr_cleanupAndPlotting(amg_rcorr, chicken_palette_10) + ggtitle("All Samples")
+amg_heatmap_antibiotic <- rcorr_cleanupAndPlotting(amg_rcorr_antibiotic, chicken_palette_10) + ggtitle("Antibiotic")
+amg_heatmap_antibioticfree <-rcorr_cleanupAndPlotting(amg_rcorr_antibioticFree,chicken_palette_10) + ggtitle("Antibiotic Free")
+amg_heatmap_outdoor <-rcorr_cleanupAndPlotting(amg_rcorr_outdoor,chicken_palette_10) + ggtitle("Outdoor")
+amg_heatmap_indoor <-rcorr_cleanupAndPlotting(amg_rcorr_indoor,chicken_palette_10) + ggtitle("Indoor")
+
+print_and_save(amg_heatmap_all, heatmap_width, heatmap_height)
+print_and_save(amg_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(amg_heatmap_antibioticfree, heatmap_width, heatmap_height)
+print_and_save(amg_heatmap_outdoor, heatmap_width, heatmap_height)
+print_and_save(amg_heatmap_indoor, heatmap_width, heatmap_height)
+
+```
+```{r}
+### amr gene
+amg_amr_gene_rcorr <- rcorr(t(amg_corr_matrix), t(amr_gene_corr_matrix), type = "pearson")
+amg_amr_gene_antibiotic_rcorr <- rcorr(t(amg_corr_matrix_antibiotic), t(amr_gene_corr_matrix_antibiotic), type = "pearson")
+amg_amr_gene_antibioticFree_rcorr <- rcorr(t(amg_corr_matrix_antibioticFree), t(amr_gene_corr_matrix_antibioticFree), type = "pearson")
+
+
+### amr class
+amg_amr_class_rcorr <- rcorr(t(amg_corr_matrix), t(amr_class_corr_matrix), type = "pearson")
+amg_amr_class_antibiotic_rcorr <- rcorr(t(amg_corr_matrix_antibiotic), t(amr_class_corr_matrix_antibiotic), type = "pearson")
+amg_amr_class_antibioticFree_rcorr <- rcorr(t(amg_corr_matrix_antibioticFree), t(amr_class_corr_matrix_antibioticFree), type = "pearson")
+
+
+###amp
+amg_amp_rcorr <- rcorr(t(amg_corr_matrix), t(amp_corr_matrix), type = "pearson")
+amg_amp_antibiotic_rcorr <- rcorr(t(amg_corr_matrix_antibiotic), t(amp_corr_matrix_antibiotic), type = "pearson")
+amg_amp_antibioticFree_rcorr <- rcorr(t(amg_corr_matrix_antibioticFree), t(amp_corr_matrix_antibioticFree), type = "pearson")
+
+### phage_pfam
+amg_phagepfam_rcorr <- rcorr(t(phage_pfam_corr_matrix), t(amg_corr_matrix), type = "pearson")
+
+
+### virhostmatcher
+amg_virhost_rcorr <- rcorr(t(amg_corr_matrix), t(virhost_corr_matrix), type = "pearson")
+amg_virhost_antibiotic_rcorr <- rcorr(t(amg_corr_matrix_antibiotic), t(virhost_corr_matrix_antibiotic), type = "pearson")
+amg_virhost_antibioticFree_rcorr <- rcorr(t(amg_corr_matrix_antibioticFree), t(virhost_corr_matrix_antibioticFree), type = "pearson")
+
+### lysin
+amg_lysin_rcorr <- rcorr(t(amg_corr_matrix), t(lysin_corr_matrix), type = "pearson")
+amg_lysin_antibiotic_rcorr <- rcorr(t(amg_corr_matrix_antibiotic), t(lysin_corr_matrix_antibiotic), type = "pearson")
+amg_lysin_antibioticFree_rcorr <- rcorr(t(amg_corr_matrix_antibioticFree), t(lysin_corr_matrix_antibioticFree), type = "pearson")
+
+####### generating ggplots
+
+amg_amr_gene_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amr_gene_rcorr, amr_gene_corr_matrix, amg_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and AMR Genes")
+
+amg_amr_gene_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amr_gene_antibiotic_rcorr,  amr_gene_corr_matrix_antibiotic, amg_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and AMR Genes - Antibiotic Samples")
+
+amg_amr_gene_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amr_gene_antibioticFree_rcorr,  amr_gene_corr_matrix_antibioticFree, amg_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and AMR Genes - Antibiotic Free Samples")
+
+###
+
+amg_amr_class_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amr_class_rcorr, amr_class_corr_matrix, amg_corr_matrix,  chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups and AMR Classes")
+
+amg_amr_class_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amr_class_antibiotic_rcorr,  amr_class_corr_matrix_antibiotic, amg_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups and AMR Classes - Antibiotic Samples")
+
+amg_amr_class_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amr_class_antibioticFree_rcorr, amr_class_corr_matrix_antibioticFree, amg_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups and AMR Classes - Antibiotic Free Samples")
+
+###
+amg_amp_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amp_rcorr, amg_corr_matrix, amp_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and Antimicrobial Peptide Genes")
+
+amg_amp_antibiotic_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amp_antibiotic_rcorr, amg_corr_matrix_antibiotic, amp_corr_matrix_antibiotic, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and Antimicrobial Peptide Genes - Antibiotic Samples")
+
+amg_amp_antibioticFree_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_amp_antibioticFree_rcorr, amg_corr_matrix_antibioticFree, amp_corr_matrix_antibioticFree, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \nand Antimicrobial Peptide Genes - Antibiotic Free Samples")
+
+###
+
+amg_phagepfam_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_phagepfam_rcorr, amg_corr_matrix, phage_pfam_corr_matrix, chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and Phage Pfam Annotated Genes")
+
+amg_virhost_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_virhost_rcorr, amg_corr_matrix, virhost_corr_matrix,  chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and Putative Phage Host Phyla")
+amg_virhost_heatmap_antibiotic <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_virhost_antibiotic_rcorr, amg_corr_matrix_antibiotic, virhost_corr_matrix_antibiotic,  chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and Putative Phage Host Phyla - Antibiotic Samples")
+amg_virhost_heatmap_antibioticFree <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_virhost_antibioticFree_rcorr, amg_corr_matrix_antibioticFree, virhost_corr_matrix_antibioticFree,  chicken_palette_10) + ggtitle("Pearson Correlation of amg Viral Orthologous Groups \n and Putative Phage Host Phyla - Antibiotic Free Samples")
+
+amg_lysin_heatmap <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_lysin_rcorr, amg_corr_matrix, lysin_corr_matrix,  chicken_palette_10) + ggtitle("Pearson Correlation of Viral AMGs \n and Viral Lysin Genes")
+amg_lysin_heatmap_antibiotic <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_lysin_antibiotic_rcorr, amg_corr_matrix_antibiotic, lysin_corr_matrix_antibiotic,  chicken_palette_10) + ggtitle("Pearson Correlation of Viral AMGs \n and Viral Lysin Genes - Antibiotic Samples")
+amg_lysin_heatmap_antibioticFree <- twoTable_rcorr_cleanupandGraphing_ggcorrplot(amg_lysin_antibioticFree_rcorr, amg_corr_matrix_antibioticFree, lysin_corr_matrix_antibioticFree,  chicken_palette_10) + ggtitle("Pearson Correlation of Viral AMGs \n and Viral Lysin Genes - Antibiotic Free Samples")
+
+### displaying ggplot and saving
+# print_and_save(    , heatmap_width, heatmap_height)
+
+print_and_save(amg_amr_gene_heatmap, heatmap_width, heatmap_height) 
+print_and_save(amg_amr_gene_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(amg_amr_gene_antibioticFree_heatmap, heatmap_width, heatmap_height)  
+
+print_and_save(amg_amr_class_heatmap, heatmap_width, heatmap_height) 
+print_and_save(amg_amr_class_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(amg_amr_class_antibioticFree_heatmap, heatmap_width, heatmap_height) 
+
+
+print_and_save(amg_amp_heatmap, heatmap_width, heatmap_height) 
+print_and_save(amg_amp_antibiotic_heatmap, heatmap_width, heatmap_height) 
+print_and_save(amg_amp_antibioticFree_heatmap, heatmap_width, heatmap_height) 
+
+
+print_and_save(amg_phagepfam_heatmap, 20, 30)
+print_and_save(amg_virhost_heatmap, heatmap_width, heatmap_height) 
+print_and_save(amg_virhost_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(amg_virhost_heatmap_antibioticFree, heatmap_width, heatmap_height)
+
+print_and_save(amg_lysin_heatmap, heatmap_width, heatmap_height) 
+print_and_save(amg_lysin_heatmap_antibiotic, heatmap_width, heatmap_height)
+print_and_save(amg_lysin_heatmap_antibioticFree, heatmap_width, heatmap_height)
+
+# heatmap_width = 9
+# heatmap_height = 7
+
+
+
+```
+
+```{r}
+
+
+### AMR
+
+
+### AMP
+
+
+###Lysin
+
+
+###VirHostMatcher Host
+```
+
+## Point Range Graphs
+
+```{r}
+nseqs_per_sample <- CPM_long %>%
+  group_by(sample_id) %>%
+  dplyr::summarize(N = sum(CPM), .groups="drop") %>%
+  dplyr::count(N) %>%
+  pull(N)
+
+lod <- 100* 1/nseqs_per_sample
+
+otu_rel_abund <- inner_join(metadata, CPM_long, by=c("Sample_ID"="sample_id")) %>%
+  inner_join(., kaiju_names, by=c("megahit_contig_id"="contig_ID")) 
+  group_by(sample_id) %>%
+  mutate(rel_abund = count / sum(count)) %>%
+  ungroup() %>%
+  select(-count) %>%
+  pivot_longer(
+    c("kingdom", "phylum", "class", "order", "family", "genus", "otu"),
+    names_to="level",
+    values_to="taxon") %>%
+  mutate(disease_stat = factor(disease_stat,
+                               levels=c("NonDiarrhealControl",
+                                        "DiarrhealControl",
+                                        "Case")))
+
+# rel_abund_df <- contig_summary %>%
+#   group_by(sample_id) %>%
+#   mutate(rel_abund = 100*CPM/sum(CPM)) %>%
+#   ungroup () %>%
+#   # group_by(sample_id, superkingdom, phylum, class, order, family, genus, AntibioticUsage, IndoorOutdoor) %>%
+#   group_by(sample_id, superkingdom, phylum, AntibioticUsage, IndoorOutdoor) %>%
+#   # dplyr::summarize(rel_abund_sum=sum(rel_abund),
+#   #           CPM_sum=sum(CPM),
+#   #           .groups="drop") %>%
+#  # pivot_longer(cols=c("superkingdom", "phylum", "class", "order", "family","genus"),
+#   pivot_longer(cols=c("superkingdom", "phylum"),
+#                names_to = "level",
+#                values_to = "taxon") %>%
+#   mutate(taxon = ifelse(is.na(taxon), "NA", taxon)) %>%
+#   mutate(AntibioticUsage = factor(AntibioticUsage,
+#                             levels=c("Antibiotic", "Antibiotic Free")),
+#          IndoorOutdoor = factor(IndoorOutdoor,
+#                                 levels=c("Indoor","Outdoor")))
+#   
+#   
+  
+  
+  
+```
+
+## Phyla over 1% abundance
+
+```{r}
+phylum_rel_abund <- rel_abund_df %>%
+  filter(level=="phylum") %>%
+  group_by(AntibioticUsage, IndoorOutdoor, sample_id, taxon) %>%
+  dplyr::summarize(rel_abund = sum(rel_abund), .groups="drop")
+
+phylum_pool <- phylum_rel_abund %>%
+  group_by(AntibioticUsage, IndoorOutdoor, taxon) %>%
+  dplyr::summarize(median=median(rel_abund), .groups="drop") %>%
+  group_by(taxon) %>%
+  dplyr::summarize(pool = max(median) < 1 | taxon == "NA",
+            median = median(median),
+            .groups="drop")
+
+phylum_relative_abund_graphingDF <-  
+  inner_join(phylum_rel_abund, phylum_pool, by="taxon") %>%
+  mutate(taxon = if_else(pool, "Other", taxon)) %>%
+  #left_join(select(metadata, SampleID), by=c("sample_id"="SampleID")) %>%
+  group_by(AntibioticUsage, IndoorOutdoor, taxon) %>%
+  dplyr::summarize(rel_abund = sum(rel_abund),
+            median=max(median),
+            .groups="drop") %>%
+  mutate(taxon = factor(taxon),
+         taxon = fct_reorder(taxon, median, .desc=FALSE)) %>%
+  # mutate(year = as.numeric(as.character(year))) %>%
+  mutate(rel_abund = if_else(rel_abund == 0,
+                             2/3 * mean(lod),
+                             rel_abund))
+```
+
+
+
+
+```{r}
+
+  
+phylum_relAbund_plot <- phylum_relative_abund_graphingDF %>%
+  ggplot(aes(y=taxon, x=rel_abund, color=AntibioticUsage, fill=AntibioticUsage)) +
+  geom_vline(xintercept = mean(lod), size=0.2, color="grey") +
+  stat_summary(fun.data="median_hilow", geom = "pointrange",
+               fun.args=list(conf.int=0.95),
+               position = position_dodge(width=0.6)) +
+  stat_summary(fun.data="median_hilow", geom = "point",
+               fun.args=list(conf.int=0.95),
+               position = position_dodge(width=0.6)) +
+  # scale_shape_discrete(solid=T) +
+  # geom_point() +
+  # coord_trans(x="log10") +
+  # facet_wrap(vars(year)) +
+  scale_x_continuous(limits=c(NA, 100),
+                     breaks=c(0.1, 1, 10, 50, 100),
+                     labels=c(0.1, 1, 10, 50, 100)) +
+  # scale_color_brewer(palette = "Dark2",
+  #                    name = "Soil Type",
+  #                    labels=corrected_names) +
+  # scale_fill_brewer(palette = "Dark2",
+  #                   name = "Soil Type",
+  #                  labels=corrected_names) +
+  labs(y=NULL,
+       x="Relative Abundance (%)") +
+  theme_classic() +
+  theme(axis.text.y = element_markdown(),
+        legend.text = element_markdown(),
+        # legend.position = c(0.8, 0.6),
+        legend.background = element_rect(color="black", fill = NA),
+        # legend.margin = margin(t=-5, r=3, b=3)
+        )
+
+
+phylum_relAbund_plot
+```
+
+
+
+#### Graphing Function
+```{r}
+taxonomic_pointrange_plot_func <- function(df, taxa_rank, functional_gene){
+ point_range_ggplot <- 
+  df %>%
+  ggplot(aes(y=as.character(taxa_rank), x=CPM, color=as.character(functional_gene), fill=as.character(functional_gene))) +
+  #geom_vline(xintercept = mean(CPM), size=0.2, color="grey") +
+  stat_summary(fun.data="median_hilow", geom = "pointrange",
+               fun.args=list(conf.int=0.95),
+               position = position_dodge(width=0.6)) +
+  stat_summary(fun.data="median_hilow", geom = "point",
+               fun.args=list(conf.int=0.95),
+               position = position_dodge(width=0.6)) +
+  # scale_shape_discrete(solid=T) +
+  # geom_point() +
+  #coord_trans(x="log10") +
+  #facet_wrap(vars(AntibioticUsage)) +
+  # scale_x_continuous(limits=c(NA, 100),
+  #                    breaks=c(0.1, 1, 10, 50, 100),
+  #                    labels=c(0.1, 1, 10, 50, 100)) +
+  # scale_color_brewer(palette = "Dark2",
+  #                    name = "Soil Type",
+  #                    labels=corrected_names) +
+  # scale_fill_brewer(palette = "Dark2",
+  #                   name = "Soil Type",
+  #                  labels=corrected_names) +
+  labs(y=as.character(R.utils::capitalize(taxa_rank)),
+       x="Count Per Million (CPM)") +
+  theme_classic() +
+  theme(axis.text.y = element_markdown(),
+        legend.text = element_markdown(),
+        # legend.position = c(0.8, 0.6),
+        legend.background = element_rect(color="black", fill = NA),
+        # legend.margin = margin(t=-5, r=3, b=3)
+        )
+
+point_range_ggplot
+}
+```
+
+
+```{r}
+taxonomic_pointrange_plot_func(amr_phylum_pointrange_df, "phylum", "AMR_class")
+```
+
+#### Bacterial Phylum
+```{r}
+bacterial_phylum_pointrange_df <- contig_summary %>%
+  dplyr::select("megahit_contig_id", "AMR_class", "superkingdom", "phylum", "sample_id", "AntibioticUsage", "IndoorOutdoor", "CPM") %>%
+  group_by(superkingdom, phylum, sample_id, AntibioticUsage, IndoorOutdoor) %>%
+  summarise(CPM=sum(CPM),
+          .groups = "keep") %>%
+  ungroup() %>%
+  group_by(sample_id) %>%
+  mutate(rel_abund = 100*CPM/sum(CPM)) %>%
+  ungroup() 
+#%>%
+ # filter(!is.na(AMR_class))
+```
+
+
+
+#### AMR and Phylum
+Data frame needed: CPM grouped by Phylum and AMR class
+```{r}
+amr_phylum_pointrange_df <- contig_summary %>%
+  dplyr::select("megahit_contig_id", "AMR_class", "superkingdom", "phylum", "sample_id", "AntibioticUsage", "IndoorOutdoor", "CPM") %>%
+  group_by(AMR_class, superkingdom, phylum, sample_id, AntibioticUsage, IndoorOutdoor) %>%
+  summarise(CPM=sum(CPM),
+          .groups = "keep") %>%
+  ungroup() %>%
+  group_by(sample_id) %>%
+  mutate(rel_abund = 100*CPM/sum(CPM)) %>%
+  ungroup() %>%
+  filter(!is.na(AMR_class))
+
+```
+
+
+```{r}
+
+amr_phylum_pointrange_plot <- amr_phylum_pointrange_df %>%
+  ggplot(aes(y=phylum, x=CPM, color=AMR_class, fill=AMR_class)) +
+  #geom_vline(xintercept = mean(CPM), size=0.2, color="grey") +
+  stat_summary(fun.data="median_hilow", geom = "pointrange",
+               fun.args=list(conf.int=0.95),
+               position = position_dodge(width=0.6)) +
+  stat_summary(fun.data="median_hilow", geom = "point",
+               fun.args=list(conf.int=0.95),
+               position = position_dodge(width=0.6)) +
+  # scale_shape_discrete(solid=T) +
+  # geom_point() +
+  #coord_trans(x="log10") +
+  facet_wrap(vars(AntibioticUsage)) +
+  # scale_x_continuous(limits=c(NA, 100),
+  #                    breaks=c(0.1, 1, 10, 50, 100),
+  #                    labels=c(0.1, 1, 10, 50, 100)) +
+  # scale_color_brewer(palette = "Dark2",
+  #                    name = "Soil Type",
+  #                    labels=corrected_names) +
+  # scale_fill_brewer(palette = "Dark2",
+  #                   name = "Soil Type",
+  #                  labels=corrected_names) +
+  labs(y=NULL,
+       x="Count Per Million (CPM)") +
+  theme_classic() +
+  theme(axis.text.y = element_markdown(),
+        legend.text = element_markdown(),
+        # legend.position = c(0.8, 0.6),
+        legend.background = element_rect(color="black", fill = NA),
+        # legend.margin = margin(t=-5, r=3, b=3)
+        )
+
+amr_phylum_pointrange_plot
+```
+
+
+
+# Phyloseq analysis 
+```{r}
+
+
+# tax_mat<- kaiju_names %>%
+#   column_to_rownames(., var="contig_ID") %>%
+#   select(., c("superkingdom":"species")) %>%
+#   as.matrix()
+# 
+# metadata_df <- as.data.frame(metadata)
+# 
+# CPM_OTU <- CPM %>%
+#   left_join(contig_id_conversion_table, by=c("contig_id"="anvio_contig_id")) %>%
+#   column_to_rownames(var="megahit_contig_id") %>%
+#   select(-"contig_id")
+
+#transform data to phyloseq objects
+# phylo_OTU<- otu_table(CPM_OTU, taxa_are_rows = TRUE)
+# phylo_TAX<- tax_table(tax_mat)
+# phylo_samples<- sample_data(metadata)
+
+load(paste0(path, "byp_otu_table.RData"))
+load(paste0(path, "byp_tax_table.RData"))
+load(paste0(path, "byp_tax_table_virhostmatcher.RData"))
+load(paste0(path, "metadata.RData"))
+load(paste0(path, "CPM_sampleAbundance.RData"))
+load(paste0(path, "readcount_data.RData"))
+load(paste0(path, "contig_id_conversion_table.RData"))
+```
+
+```{r}
+phylo_graphing_theme <- theme(axis.ticks.x=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.text = element_text(size=10),
+      axis.text.x = element_text(angle = 45),
+     #  axis.title = element_blank(),
+      plot.title = element_text(hjust=0.5),
+      legend.title = element_text(size=8),
+      legend.text = element_text(size=8),
+      strip.background = element_blank(),
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA), 
+      legend.background = element_rect(fill = "transparent", color = NA), 
+      legend.box.background = element_rect(fill = "transparent", color = NA)) 
+
+```
+
+```{r}
+
+byp_otu_table_CPM <- CPM_sampleAbundance %>% 
+  column_to_rownames(var = "megahit_contig_id") %>% 
+  select(-c(anvio_contig_id, virsorter_contig_id)) %>% 
+  data.matrix(rownames.force = TRUE)
+
+byp_otu_table_readCount <- readcount_data %>%
+  rownames_to_column(var="anvio_contig_id") %>%
+  left_join(contig_id_conversion_table) %>% 
+  column_to_rownames(var="megahit_contig_id") %>%
+  select(-c("anvio_contig_id", "virsorter_contig_id"))
+
+byp_tax_table_rowname <- byp_tax_table %>% 
+  column_to_rownames(var = "contig_ID") %>%
+  mutate_all(as.factor) %>% 
+  as.matrix()
+#  data.matrix(rownames.force = TRUE)
+
+
+metadata_pruned <- subset(metadata, Sample_ID != "A8_2")
+
+```
+
+```{r}
+OTU = otu_table(byp_otu_table_readCount, taxa_are_rows = TRUE)
+#taxa_names(OTU)
+
+TAX = tax_table(byp_tax_table_rowname)
+#taxa_names(TAX)
+```
+
+
+```{r}
+
+#and put them in one object
+phylo_object<- phyloseq(OTU, 
+                        TAX, 
+                        sample_data(metadata_pruned))
+phylo_object <- prune_taxa(taxa_sums(phylo_object) > 0, phylo_object)
+
+#%>%
+#  transformSampleCounts(., as.integer)
+
+#check if everything looks good
+
+#this doesn't work, and I'm not sure why, but I'm going to keep going.
+sample_sums(phylo_object)
+phylo_object
+sample_names(phylo_object)
+rank_names(phylo_object)
+sample_variables(phylo_object)
+otu_table(phylo_object)[1:3, 1:2]
+taxa_names(phylo_object)[1:5]
+```
+
+```{r}
+#plot_bar(phylo_object, fill="phylum")
+```
+
+#### metagenomeSeq normalization
+
+Here the phyloseq object is transformed into a metagenomeSeq object for normalization.  The normalization factor is calculated, and then applied to the object. A matrix of these normalized values are then output for futher analysis. This is performed rather than rareification, to preserve the diversity of the dataset.
+
+```{r metagenomeSeq_normalization}
+ps.ms <- phyloseq_to_metagenomeSeq(phylo_object)
+
+ps.ms_normfactor <- cumNormStat(ps.ms)
+cat("Normalization factor =", ps.ms_normfactor)
+ps.ms.norm <- cumNorm(ps.ms, p = ps.ms_normfactor)
+normalizedMatrix <- MRcounts(ps.ms.norm, norm = TRUE)
+```
+
+#### Normalized phyloseq object
+Now the object that was normalized above will be integrated into a new phyloseq object
+```{r normalized_phyloseq}
+phylo_object_normalized <- phylo_object
+otu_table(phylo_object_normalized) <- otu_table(normalizedMatrix, taxa_are_rows = TRUE)
+
+# phylo_object_normalized_phylum <- tax_glom(phylo_object_normalized, taxrank = "phylum", NArm=FALSE)
+# phylo_object_normalized_phylum
+```
+
+```{r}
+#plot_bar(phylo_object_normalized, fill="phylum")
+```
+
+
+#### Adding a tree to the object
+```{r}
+# 
+# random_tree = rtree(ntaxa(phylo_object), rooted=TRUE, tip.label=taxa_names(phylo_object))
+# phylo_object <- merge_phyloseq(random_tree, phylo_object)
+```
+
+
+### Alpha Richness
+
+```{r}
+alpha_tab <- estimate_richness(phylo_object, split = TRUE, measures = c("Shannon", "Chao1")) %>%
+  rownames_to_column(var = "sample_id") %>%
+  left_join(select(metadata_pruned, Sample_ID, AntibioticUsage, IndoorOutdoor), by=c("sample_id"="Sample_ID"))
+
+kruskal.test(Shannon~AntibioticUsage, data = alpha_tab)
+kruskal.test(Shannon~IndoorOutdoor, data = alpha_tab)
+
+kruskal.test(Chao1~AntibioticUsage, data = alpha_tab)
+kruskal.test(Chao1~IndoorOutdoor, data = alpha_tab)
+
+#pairwise.wilcox.test(alpha_tab$Shannon, alpha_tab$sample_id, p.adjust.method = "BH")
+```
+
+
+```{r}
+alpha_richness_ggplot <- phyloseq::plot_richness(phylo_object, measures = c("Chao1", "Shannon"), color = "AntibioticUsage", shape = "IndoorOutdoor") + 
+  phylo_graphing_theme + 
+  scale_color_manual(values = AB_usage_pal) + 
+ geom_point(size=5, alpha=0.7)
+alpha_richness_ggplot
+
+alpha_richness_indooroutdoor_ggplot <- phyloseq::plot_richness(phylo_object, x="IndoorOutdoor", measures = c("Chao1", "Shannon"), color = "AntibioticUsage", shape = "IndoorOutdoor") + 
+  phylo_graphing_theme + 
+# geom_point(position = position_jitterdodge()) + 
+  scale_color_manual(values = AB_usage_pal) + 
+  ylab("Alpha Diversity Measure") + 
+  xlab("Sample Location") + 
+  geom_violin(fill = NA, draw_quantiles = TRUE)
+
+alpha_richness_indooroutdoor_ggplot
+
+alpha_richness_antibiotic_ggplot <- phyloseq::plot_richness(phylo_object, x="AntibioticUsage", measures = c("Chao1", "Shannon"), color = "AntibioticUsage", shape = "IndoorOutdoor") + 
+  phylo_graphing_theme + 
+  scale_color_manual(values = AB_usage_pal) + 
+  geom_point(size=5, alpha=0.7)
+alpha_richness_antibiotic_ggplot
+
+ggsave(filename="alpha_richness_ggplot.png", plot = alpha_richness_ggplot, device="png")
+ggsave(filename="alpha_richness_indooroutdoor_ggplot.png", plot = alpha_richness_indooroutdoor_ggplot, device="png")
+ggsave(filename="alpha_richness_antibiotic_ggplot.png", plot = alpha_richness_antibiotic_ggplot, device="png")
+
+```
+
+
+### Beta Diversity
+[From this tutorial from joey711](https://joey711.github.io/phyloseq/plot_ordination-examples.html)
+```{r}
+
+#Remove OTUs that do not show appear more than 5 times in more than half the samples
+phylo_object_1 <- phylo_object
+wh0 = genefilter_sample(phylo_object, filterfun_sample(function(x) x > 5), A=0.5*nsamples(phylo_object))
+phylo_object_1 = prune_taxa(wh0, phylo_object)
+
+#Transform to even sampling depth.
+phylo_object_1 = transform_sample_counts(phylo_object_1, function(x) 1E6 * x/sum(x))
+
+#Keep only the most abundant five phyla.
+phylum.sum = tapply(taxa_sums(phylo_object_1), tax_table(phylo_object_1)[, "phylum"], sum, na.rm=TRUE)
+top5phyla = names(sort(phylum.sum, TRUE))[1:6]
+top5phyla = top5phyla[top5phyla != "NA"]
+
+phylo_object_1 = prune_taxa((tax_table(phylo_object_1)[, "phylum"] %in% top5phyla), phylo_object_1)
+
+phylo_object_1
+```
+
+#### Just OTUs (contigs)
+```{r}
+phylo_object_1.ord <- ordinate(phylo_object_1, "NMDS", "bray")
+phylo_object_1.ord_MDS <- ordinate(phylo_object_1, "MDS", "bray")
+
+phylo_object_1.dist <- phyloseq::distance(phylo_object_1, "bray", type = "samples")
+```
+
+```{r}
+p1 = plot_ordination(phylo_object_1, phylo_object_1.ord, type="taxa", color="phylum", title="Bray Curtis Beta Diversity of Contigs by Phyla") + scale_color_manual(values = chicken_palette) + phylo_graphing_theme
+beta_diversity_phylum_nmds <- p1 
+beta_diversity_phylum_nmds
+
+beta_diversity_phylum_nmds_wrapped <- p1 + facet_wrap(~phylum, 3)
+beta_diversity_phylum_nmds_wrapped
+
+ggsave(beta_diversity_phylum_nmds, filename = "beta_diversity_phylum_nmds.png")
+ggsave(beta_diversity_phylum_nmds_wrapped, filename = "beta_diversity_phylum_nmds_wrapped.png")
+```
+
+
+#### Samples
+
+```{r}
+adonis2(phylo_object_1.dist~metadata_pruned$AntibioticUsage*metadata_pruned$IndoorOutdoor)
+
+betadispertest_abx <- betadisper(phylo_object_1.dist, metadata_pruned$AntibioticUsage)
+betadispertest_ind <- betadisper(phylo_object_1.dist, metadata_pruned$IndoorOutdoor)
+
+betadispertest_abx
+betadispertest_ind
+
+betadispertest_abx_HSD <- TukeyHSD(betadispertest_abx)
+betadispertest_ind_HSD <- TukeyHSD(betadispertest_ind)
+
+betadispertest_abx_HSD
+betadispertest_ind_HSD 
+```
+
+```{r}
+p2_NMDS = plot_ordination(phylo_object_1, phylo_object_1.ord, type="samples", color="AntibioticUsage", shape = "IndoorOutdoor", label = "Sample_ID") 
+beta_diversity_sample_nmds <- p2_NMDS + 
+  geom_point(size=3) + 
+  ggtitle("NMDS Bray-Curtis Beta Diversity of Samples") + 
+  phylo_graphing_theme + 
+  stat_ellipse(type = "norm", linetype = 2) +
+  stat_ellipse(type = "t") +
+  scale_color_manual(values = AB_usage_pal) 
+
+p2_MDS = plot_ordination(phylo_object_1, phylo_object_1.ord_MDS, type="samples", color="AntibioticUsage", shape = "IndoorOutdoor", label = "Sample_ID") 
+beta_diversity_sample_mds <- p2_MDS + 
+  geom_point(size=3) + 
+  ggtitle("MDS Bray-Curtis Beta Diversity of Samples") + 
+  phylo_graphing_theme + 
+  stat_ellipse(type = "norm", linetype = 2) +
+  stat_ellipse(type = "t") +
+  scale_color_manual(values = AB_usage_pal) 
+
+
+beta_diversity_sample_nmds
+beta_diversity_sample_mds
+
+
+ggsave(beta_diversity_sample_nmds, filename = "beta_diversity_sample_nmds.png")
+ggsave(beta_diversity_sample_mds, filename = "beta_diversity_sample_mds.png")
+
+```
+
+```{r}
+p3 = plot_ordination(phylo_object_1, phylo_object_1.ord, type="biplot", color="AntibioticUsage", shape="phylum", title="biplot")
+# Some stuff to modify the automatic shape scale
+phylo_object_1.shape.names = get_taxa_unique(phylo_object_1, "phylum")
+phylo_object_1.shape <- 15:(15 + length(phylo_object_1.shape.names) - 1)
+names(phylo_object_1.shape) <- phylo_object_1.shape.names
+phylo_object_1.shape["samples"] <- 16
+p3 + scale_shape_manual(values=phylo_object_1.shape)
+```
+
+
+```{r}
+p4 = plot_ordination(phylo_object_1, phylo_object_1.ord, type="split", color="phylum", shape="AntibioticUsage", label="Sample_ID", title="split") 
+p4
+```
+
+
+### Stacked Bar Plots
+```{r}
+stacked_bar_phylum <- phyloseq::plot_bar(phylo_object_1, fill="phylum") + 
+  geom_bar(aes(color=phylum, fill=phylum), stat="identity", position="stack") + 
+  scale_color_manual(values = chicken_palette) + 
+  scale_fill_manual(values = chicken_palette) + 
+  phylo_graphing_theme + ggtitle("Phylum Abundance") + 
+  ylab("Relative Abundance") + 
+  xlab("Sample") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.75))
+  
+stacked_bar_phylum 
+
+stacked_bar_phylum_wrapped <- stacked_bar_phylum + facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE) 
+stacked_bar_phylum_wrapped 
+
+ggsave(stacked_bar_phylum, filename = "stacked_bar_phylum.png")
+ggsave(stacked_bar_phylum_wrapped, filename = "stacked_bar_phylum_wrapped.png")
+```
+
+```{r}
+#Keep only the most abundant five phyla.
+family.sum = tapply(taxa_sums(phylo_object_1), tax_table(phylo_object_1)[, "family"], sum, na.rm=TRUE)
+top10family = names(sort(family.sum, TRUE))[1:11]
+top10family = top10family[top10family != "NA"]
+
+phylo_object_2 = prune_taxa((tax_table(phylo_object_1)[, "family"] %in% top10family), phylo_object_1)
+
+phylo_object_2
+
+
+stacked_bar_family <- phyloseq::plot_bar(phylo_object_2, fill="family") + 
+  geom_bar(aes(color=family, fill=family), stat="identity", position="stack") + 
+  scale_color_manual(values = colorRampPalette(chicken_palette)(10)) + 
+  scale_fill_manual(values = colorRampPalette(chicken_palette)(10)) + 
+  phylo_graphing_theme + ggtitle("Top 10 Most Abundant Families")
+stacked_bar_family 
+
+stacked_bar_family_wrapped <- stacked_bar_family + facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE) 
+stacked_bar_family_wrapped 
+
+ggsave(stacked_bar_family, filename = "stacked_bar_family.png")
+ggsave(stacked_bar_family_wrapped, filename = "stacked_bar_family_wrapped.png")
+```
+
+
+### Salmonella Abundances
+```{r}
+phylo_salmonella = subset_taxa(phylo_object, genus=="Salmonella")
+phylo_salmonella
+
+phylo_salmonella_bar <- plot_bar(phylo_salmonella, fill="species") + 
+  geom_bar(aes(color=species, fill=species), stat="identity", position="stack") + 
+  scale_color_manual(values = chicken_palette_10) + 
+  scale_fill_manual(values = chicken_palette_10) + 
+  facet_nested(~AntibioticUsage + IndoorOutdoor,
+               scales="free",
+               nest_line = TRUE) +
+  phylo_graphing_theme + 
+  ggtitle("Salmonella Contig Abundance") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = -0.1))
+phylo_salmonella_bar
+
+ggsave(phylo_salmonella_bar, filename="phylo_salmonella_bar.png")
+```
+
+
+### Phage Phyloseq
+
+```{r}
+phylo_phage <- phylo_object
+
+byp_tax_table_virhostmatcher_rowname  <- byp_tax_table_virhostmatcher %>% 
+  column_to_rownames(var = "megahit_contig_id") %>%
+  mutate_all(as.factor) %>% 
+  as.matrix()
+
+tax_table(phylo_phage) <- byp_tax_table_virhostmatcher_rowname
+phylo_phage
+
+```
+
+
+```{r}
+phylo_phage_phylum_bar <- plot_bar(phylo_phage, fill = "hostPhylum") + phylo_graphing_theme + 
+   geom_bar(aes(color=hostPhylum, fill=hostPhylum), stat="identity", position="stack") + 
+  scale_color_manual(values =colorRampPalette(chicken_palette)(13)) + 
+  scale_fill_manual(values = colorRampPalette(chicken_palette)(13)) + 
+  ggtitle("Abundance of Putative Phage Host Phylum by Sample") + 
+  ylab("Relative Abundance") + 
+  facet_nested(~AntibioticUsage + IndoorOutdoor,
+             scales="free",
+             nest_line = TRUE) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust=-0.25, hjust=1.5)
+  )
+
+phylo_phage_phylum_bar
+
+ggsave(phylo_phage_phylum_bar, filename = "phylo_phage_phylum_bar.png")
+
+```
+
+
+```{r}
+phylo_phage_glom <- tax_glom(phylo_phage, taxrank = "hostGenus")
+plot_heatmap(phylo_phage_glom)
+```
+
+```{r}
+plot_net(phylo_phage, distance = "bray", type = "taxa", color = "hostPhylum")
+```
+
+
+#### Alpha Richness
+```{r}
+alpha_richness_phage_ggplot <- phyloseq::plot_richness(phylo_phage, measures = c("Chao1", "Shannon"), color = "AntibioticUsage", shape = "IndoorOutdoor") + 
+  phylo_graphing_theme + 
+  scale_color_manual(values = AB_usage_pal) + 
+ geom_point(size=5, alpha=0.7) + 
+  ggtitle("Alpha Diversity of Putative Phage Hosts by Sample")
+alpha_richness_phage_ggplot
+
+alpha_richness_phage_indooroutdoor_ggplot <- phyloseq::plot_richness(phylo_phage, x="IndoorOutdoor", measures = c("Chao1", "Shannon"), color = "AntibioticUsage", shape = "IndoorOutdoor") + 
+  phylo_graphing_theme + 
+# geom_point(position = position_jitterdodge()) + 
+  scale_color_manual(values = AB_usage_pal) + 
+  geom_violin(fill = NA, draw_quantiles = TRUE)+ 
+  ggtitle("Alpha Diversity of Putative Phage Hosts by Sample")
+
+alpha_richness_phage_indooroutdoor_ggplot
+
+alpha_richness_phage_antibiotic_ggplot <- phyloseq::plot_richness(phylo_phage, x="AntibioticUsage", measures = c("Chao1", "Shannon"), color = "AntibioticUsage", shape = "IndoorOutdoor") + 
+  phylo_graphing_theme + 
+  scale_color_manual(values = AB_usage_pal) + 
+  geom_point(size=5, alpha=0.7)+ 
+  ggtitle("Alpha Diversity of Putative Phage Hosts by Sample")
+
+alpha_richness_phage_antibiotic_ggplot
+
+ggsave(filename="alpha_richness_phage_ggplot.png", plot = alpha_richness_phage_ggplot, device="png")
+ggsave(filename="alpha_richness_phage_indooroutdoor_ggplot.png", plot = alpha_richness_phage_indooroutdoor_ggplot, device="png")
+ggsave(filename="alpha_richness_phage_antibiotic_ggplot.png", plot = alpha_richness_phage_antibiotic_ggplot, device="png")
+
+```
+
+
+```{r phage alpha richness stats}
+alpha_tab_phage <- estimate_richness(phylo_phage, split = TRUE, measures = c("Shannon", "Chao1")) %>%
+  rownames_to_column(var = "sample_id") %>%
+  left_join(select(metadata_pruned, Sample_ID, AntibioticUsage, IndoorOutdoor), by=c("sample_id"="Sample_ID"))
+
+kruskal.test(Shannon~AntibioticUsage, data = alpha_tab_phage)
+kruskal.test(Shannon~IndoorOutdoor, data = alpha_tab_phage)
+
+kruskal.test(Chao1~AntibioticUsage, data = alpha_tab_phage)
+kruskal.test(Chao1~IndoorOutdoor, data = alpha_tab_phage)
+```
+
+
+#### Beta Diversity
+```{r}
+phylo_phage.ord_NMDS <- ordinate(phylo_phage, "NMDS", "bray")
+phylo_phage.ord_MDS <- ordinate(phylo_phage, "MDS", "bray")
+```
+
+```{r}
+p2_phage_NMDS = plot_ordination(phylo_phage, phylo_phage.ord_NMDS, type="samples", color="AntibioticUsage", shape = "IndoorOutdoor", label = "Sample_ID") 
+beta_diversity_phage_sample_nmds <- p2_NMDS + 
+  geom_point(size=3) + 
+  ggtitle("NMDS Bray-Curtis Beta Diversity of Putative Phage Hosts by Sample") + 
+  phylo_graphing_theme + 
+  stat_ellipse(type = "norm", linetype = 2) +
+  stat_ellipse(type = "t") +
+  scale_color_manual(values = AB_usage_pal) 
+
+p2_phage_MDS = plot_ordination(phylo_phage, phylo_phage.ord_MDS, type="samples", color="AntibioticUsage", shape = "IndoorOutdoor", label = "Sample_ID") 
+beta_diversity_phage_sample_mds <- p2_MDS + 
+  geom_point(size=3) + 
+  ggtitle("MDS Bray-Curtis Beta Diversity of Putative Phage Hosts by Sample") + 
+  phylo_graphing_theme + 
+  stat_ellipse(type = "norm", linetype = 2) +
+  stat_ellipse(type = "t") +
+  #stat_ellipse(type = "euclid") + 
+  scale_color_manual(values = AB_usage_pal) 
+
+
+beta_diversity_phage_sample_nmds
+beta_diversity_phage_sample_mds
+
+
+ggsave(beta_diversity_phage_sample_nmds, filename = "beta_diversity_phage_sample_nmds.png")
+ggsave(beta_diversity_phage_sample_mds, filename = "beta_diversity_phage_sample_mds.png")
+```
+
+```{r phage beta diversity stats}
+
+phylo_phage.dist <- phyloseq::distance(phylo_phage, "bray", type = "samples")
+
+adonis2(phylo_phage.dist~metadata_pruned$AntibioticUsage*metadata_pruned$IndoorOutdoor)
+
+betadisper_phage_abx <- betadisper(phylo_phage.dist, metadata_pruned$AntibioticUsage)
+betadisper_phage_ind <- betadisper(phylo_phage.dist, metadata_pruned$IndoorOutdoor)
+
+betadisper_phage_abx
+betadisper_phage_ind
+
+betadisper_phage_abx_HSD <- TukeyHSD(betadispertest_abx)
+betadisper_phage_ind_HSD <- TukeyHSD(betadispertest_ind)
+
+betadisper_phage_abx_HSD
+betadisper_phage_ind_HSD 
+```
+
+
+### Pearson Correlation Table Filtering
+
+```{r}
+category_reference_table <- 
+  bind_rows(
+    as_tibble(rownames(lysin_corr_matrix)), 
+    as_tibble(rownames(amg_corr_matrix)),
+    as_tibble(rownames(amp_corr_matrix)),
+    as_tibble(rownames(amr_gene_corr_matrix)),
+    as_tibble(rownames(amr_class_corr_matrix)),
+    as_tibble(rownames(phage_pfam_corr_matrix))
+    ) %>% 
+mutate(category = ifelse(value %in% rownames(lysin_corr_matrix), "lysin", 
+                         ifelse(value %in% rownames(amg_corr_matrix),"phage_amg",
+                                ifelse(value %in% rownames(amp_corr_matrix), "amp",
+                                       ifelse(value %in% rownames(amr_gene_corr_matrix), "amr_gene", 
+                                              ifelse(value %in% rownames(amr_class_corr_matrix), "amr_class",
+                                                     ifelse(value %in% rownames(phage_pfam_corr_matrix), "phage_pfam", NA)
+                                                     )
+                                              )
+                                       )
+                                )
+                         )
+       )
+```
+
+
+```{r}
+pearson_correlation_tidy <- function(rcorr_obj){
+  p_val_table <-
+    rcorr_obj[["P"]] %>% 
+    as_tibble(rownames = NA) %>%
+    rownames_to_column(var = "rcorr_rownames") %>%
+    pivot_longer(!rcorr_rownames, names_to = "secondary_variable_name", values_to = "secondary_variable_p") %>%
+    filter(secondary_variable_p < 0.05)
+
+  r_p_val_table <- 
+    rcorr_obj[["r"]] %>% 
+    as_tibble(rownames = NA) %>%
+    rownames_to_column(var = "rcorr_rownames") %>%
+    pivot_longer(!rcorr_rownames, names_to = "secondary_variable_name", values_to = "secondary_variable_r") %>%
+    left_join(category_reference_table, by=c("rcorr_rownames"="value")) %>% 
+    dplyr::rename("primary_category"=category) %>%
+    left_join(category_reference_table, by=c("secondary_variable_name"="value")) %>% 
+    dplyr::rename("secondary_variable_category"=category) %>%
+    left_join(p_val_table, by=c("rcorr_rownames", "secondary_variable_name")) %>%
+    filter(is.na(secondary_variable_p) == "FALSE") %>%
+    filter(rcorr_rownames != secondary_variable_name) %>%
+    distinct()
+}
+```
+
+```{r}
+#Antibiotic
+amr_gene_amp_rcorr_antibiotic_tidy <- pearson_correlation_tidy(amr_gene_amp_rcorr_antibiotic)
+lysin_amr_gene_antibiotic_rcorr_tidy <- pearson_correlation_tidy(lysin_amr_gene_antibiotic_rcorr)
+amg_amr_gene_antibiotic_rcorr_tidy <- pearson_correlation_tidy(amg_amr_gene_antibiotic_rcorr)
+amr_class_amp_rcorr_antibiotic_tidy <- pearson_correlation_tidy(amr_class_amp_rcorr_antibiotic)
+lysin_amr_class_antibiotic_rcorr_tidy <- pearson_correlation_tidy(lysin_amr_class_antibiotic_rcorr)
+amg_amr_class_antibiotic_rcorr_tidy <- pearson_correlation_tidy(amg_amr_class_antibiotic_rcorr)
+lysin_amp_antibiotic_rcorr_tidy <- pearson_correlation_tidy(lysin_amp_antibiotic_rcorr)
+amg_amp_antibiotic_rcorr_tidy <- pearson_correlation_tidy(amg_amp_antibiotic_rcorr)
+amg_lysin_antibiotic_rcorr_tidy <- pearson_correlation_tidy(amg_lysin_antibiotic_rcorr)
+
+#Antibiotic-Free
+amr_gene_amp_rcorr_antibioticFree_tidy <- pearson_correlation_tidy(amr_gene_amp_rcorr_antibioticFree)
+lysin_amr_gene_antibioticFree_rcorr_tidy <- pearson_correlation_tidy(lysin_amr_gene_antibioticFree_rcorr)
+amg_amr_gene_antibioticFree_rcorr_tidy <- pearson_correlation_tidy(amg_amr_gene_antibioticFree_rcorr)
+amr_class_amp_rcorr_antibioticFree_tidy <- pearson_correlation_tidy(amr_class_amp_rcorr_antibioticFree)
+lysin_amr_class_antibioticFree_rcorr_tidy <- pearson_correlation_tidy(lysin_amr_class_antibioticFree_rcorr)
+amg_amr_class_antibioticFree_rcorr_tidy <- pearson_correlation_tidy(amg_amr_class_antibioticFree_rcorr)
+lysin_amp_antibioticFree_rcorr_tidy <- pearson_correlation_tidy(lysin_amp_antibioticFree_rcorr)
+amg_amp_antibioticFree_rcorr_tidy <- pearson_correlation_tidy(amg_amp_antibioticFree_rcorr)
+amg_lysin_antibioticFree_rcorr_tidy <- pearson_correlation_tidy(amg_lysin_antibioticFree_rcorr)
+
+```
+
+
+```{r}
+antibiotic_rcorr_tidy <- bind_rows(amr_gene_amp_rcorr_antibiotic_tidy,
+                                   lysin_amr_gene_antibiotic_rcorr_tidy,
+                                   amg_amr_gene_antibiotic_rcorr_tidy,
+                                   amr_class_amp_rcorr_antibiotic_tidy,
+                                   lysin_amr_class_antibiotic_rcorr_tidy,
+                                   amg_amr_class_antibiotic_rcorr_tidy,
+                                   lysin_amp_antibiotic_rcorr_tidy,
+                                   amg_amp_antibiotic_rcorr_tidy,
+                                   amg_lysin_antibiotic_rcorr_tidy) %>%
+  distinct() %>%
+  group_by(rcorr_rownames) %>%
+  mutate(associated_categories = n_distinct(secondary_variable_category)) %>%
+  ungroup() %>%
+  filter(associated_categories >= 3) 
+#%>%
+#  filter(primary_category != secondary_variable_category)
+  
+
+
+antibioticFree_rcorr_tidy <- bind_rows(amr_gene_amp_rcorr_antibioticFree_tidy,
+                                   lysin_amr_gene_antibioticFree_rcorr_tidy,
+                                   amg_amr_gene_antibioticFree_rcorr_tidy,
+                                   amr_class_amp_rcorr_antibioticFree_tidy,
+                                   lysin_amr_class_antibioticFree_rcorr_tidy,
+                                   amg_amr_class_antibioticFree_rcorr_tidy,
+                                   lysin_amp_antibioticFree_rcorr_tidy,
+                                   amg_amp_antibioticFree_rcorr_tidy,
+                                   amg_lysin_antibioticFree_rcorr_tidy) %>%
+  distinct() %>%
+  group_by(rcorr_rownames) %>%
+  mutate(associated_categories = n_distinct(secondary_variable_category)) %>%
+  ungroup() %>%
+  filter(associated_categories >= 3) 
+#%>%
+#  filter(primary_category != secondary_variable_category)
+  
+```
+
+```{r}
+antibiotic_rcorr_tidy_ggplot <- ggplot(antibiotic_rcorr_tidy, aes(secondary_variable_name, rcorr_rownames, fill=secondary_variable_r)) +
+  geom_tile() +
+  facet_grid(vars(primary_category),vars(secondary_variable_category), scales = "free", space="free") +  
+ # facet_grid(~secondary_variable_category) +
+   # facet_grid(~secondary_variable_category, space="free", scale="free") +
+  scale_fill_gradient2(low = chicken_palette_10[length(chicken_palette_10)], mid=chicken_palette_10[length(chicken_palette_10)/2], high = chicken_palette_10[1], limits=c(-1,1)) +
+  labs(fill = "Pearson\nCorrelation\nCoefficient") +
+  ggtitle("Significant Pearson Correlations of Interest Across Functional Gene Categories",subtitle="Antibiotic Samples") +
+  theme(axis.ticks.x=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text = element_text(size=20/.pt),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title = element_blank(),
+        plot.title = element_text(hjust=0.5),
+        plot.subtitle = element_text(hjust=0.5),
+        legend.title = element_text(size=15/.pt),
+        legend.text = element_text(size=15/.pt),
+        panel.grid.major = element_line(colour = "#D3D3D3"),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.box.background = element_rect(fill = "transparent", color = NA))
+
+
+antibioticFree_rcorr_tidy_ggplot <- ggplot(antibioticFree_rcorr_tidy, aes(secondary_variable_name, rcorr_rownames, fill=secondary_variable_r)) +
+  geom_tile() +
+  facet_grid(vars(primary_category),vars(secondary_variable_category), scales = "free", space="free") +  
+ # facet_grid(~secondary_variable_category) +
+   # facet_grid(~secondary_variable_category, space="free", scale="free") +
+  scale_fill_gradient2(low = chicken_palette_10[length(chicken_palette_10)], mid=chicken_palette_10[length(chicken_palette_10)/2], high = chicken_palette_10[1], limits=c(-1,1)) +
+  labs(fill = "Pearson\nCorrelation\nCoefficient") +
+  ggtitle("Significant Pearson Correlations of Interest Across Functional Gene Categories",subtitle="Antibiotic-Free Samples") + 
+  theme(axis.ticks.x=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text = element_text(size=20/.pt),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title = element_blank(),
+        plot.title = element_text(hjust=0.5),
+        plot.subtitle = element_text(hjust=0.5),
+        legend.title = element_text(size=15/.pt),
+        legend.text = element_text(size=15/.pt),
+        panel.grid.major = element_line(colour = "#D3D3D3"),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.box.background = element_rect(fill = "transparent", color = NA))
+
+
+
+# antibiotic_rcorr_tidy_ggplot
+# antibioticFree_rcorr_tidy_ggplot
+
+print_and_save(antibiotic_rcorr_tidy_ggplot, 16, 10)
+print_and_save(antibioticFree_rcorr_tidy_ggplot, 16, 10)
+
+
+```
+
+
+```{r}
+knitr::write_bib(c(.packages(), "bookdown"), "byp_packages.bib")
+```
+
+```{r}
+sessionInfo()
+writeLines(capture.output(sessionInfo()), "sessionInfo_backyardpoultry_metagenomic_analysis.txt")
+```
+
